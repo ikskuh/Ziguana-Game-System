@@ -4,17 +4,15 @@ const builtin = @import("builtin");
 const Terminal = @import("text-terminal.zig");
 const Multiboot = @import("multiboot.zig");
 const VGA = @import("vga.zig");
+const GDT = @import("gdt.zig");
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 pub fn main() anyerror!void {
     Terminal.clear();
-    Terminal.print("Hello, World!\r\n");
-    Terminal.setForegroundColor(.lightMagenta);
-    Terminal.print("I'm pink!\r");
-    Terminal.setForegroundColor(.lightBlue);
-    Terminal.print("I'm\r\n");
-    Terminal.resetColors();
+    Terminal.println("Initialize gdt...");
+    GDT.init();
+
     // Terminal.print("Multiboot Flags: {}\r\n", @bitCast(MultibootStructure.Flags, val));
 
     const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
@@ -31,6 +29,10 @@ pub fn main() anyerror!void {
     var vgaMemory = @intToPtr([*]u8, 0xA0000);
 
     Terminal.print("VGA init...\r\n");
+
+    // prevent the terminal to write data into the video memory
+    Terminal.enable_video = false;
+
     VGA.init();
 
     // var rng_engine = std.rand.DefaultPrng.init(0);
@@ -43,8 +45,8 @@ pub fn main() anyerror!void {
         while (y < 480) : (y += 1) {
             var x: usize = 0;
             while (x < 640) : (x += 1) {
+                c = @truncate(u4, (x + time) / 32 + y / 32);
                 VGA.setPixel(x, y, c);
-                _ = @addWithOverflow(u4, c, @truncate(u4, x + y + x * y + time), &c);
             }
         }
         VGA.swapBuffers();

@@ -37,6 +37,9 @@ var currentBackground: Color = .black;
 var cursorX: u16 = 0;
 var cursorY: u16 = 0;
 
+pub var enable_serial = true;
+pub var enable_video = true;
+
 pub fn clear() void {
     cursorX = 0;
     cursorY = 0;
@@ -91,7 +94,8 @@ fn newline() void {
     }
 }
 
-pub fn put_raw(c: u8) void {
+fn put_raw(c: u8) void {
+    if (!enable_video) return;
     videoBuffer[cursorY][cursorX] = Char{
         .char = c,
         .foreground = currentForeground,
@@ -105,13 +109,14 @@ pub fn put_raw(c: u8) void {
 }
 
 pub fn put(c: u8) void {
-    serial.put(c);
+    if (enable_serial)
+        serial.put(c);
     switch (c) {
         '\r' => cursorX = 0,
         '\n' => newline(),
         '\t' => {
             cursorX = (cursorX & ~u16(3)) + u16(4);
-            if(cursorX >= WIDTH)
+            if (cursorX >= WIDTH)
                 newline();
         },
         else => put_raw(c),
@@ -138,4 +143,9 @@ pub fn print(comptime fmt: []const u8, params: ...) void {
     std.fmt.format(void{}, error{NeverHappens}, putFormat, fmt, params) catch |err| switch (err) {
         error.NeverHappens => unreachable,
     };
+}
+
+pub fn println(comptime fmt: []const u8, params: ...) void {
+    print(fmt, params);
+    write("\r\n");
 }

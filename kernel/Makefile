@@ -3,7 +3,10 @@
 all: boot.img
 
 run: boot.img
-	qemu-system-i386 -hda $< -serial stdio -vga std
+	qemu-system-i386 \
+		-hda $< \
+		-serial stdio \
+		-vga std
 
 boot.img: zig-cache/bin/kernel syslinux.cfg
 	fallocate -l 32M $@
