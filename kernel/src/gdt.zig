@@ -126,36 +126,8 @@ fn load() void {
         \\ .reload:
     );
 }
-const GDT_FLAG_DATASEG = 0x02;
-const GDT_FLAG_CODESEG = 0x0a;
-const GDT_FLAG_TSS = 0x09;
-
-const GDT_FLAG_SEGMENT = 0x10;
-const GDT_FLAG_RING0 = 0x00;
-const GDT_FLAG_RING3 = 0x60;
-const GDT_FLAG_PRESENT = 0x80;
-
-const GDT_FLAG_4K_GRAN = 0x800;
-const GDT_FLAG_32_BIT = 0x400;
-
-fn set_entry(index: usize, base: u32, limit: u32, flags: u32) void {
-    var value: u64 = 0;
-
-    value = limit & 0xffff;
-    value |= (base & 0xffffff) << 16;
-    value |= u64(flags & 0xff) << 40;
-    value |= u64((limit >> 16) & 0xf) << 48;
-    value |= u64((flags >> 8) & 0xff) << 52;
-    value |= u64((base >> 24) & 0xff) << 56;
-
-    Terminal.println("Fake descriptor: [{}] = 0x{X:0>16}", index, value);
-}
 
 pub fn init() void {
-    // set_entry(0, 0, 0, 0);
-    // set_entry(1, 0, 0xfffff, GDT_FLAG_SEGMENT | GDT_FLAG_32_BIT | GDT_FLAG_CODESEG | GDT_FLAG_4K_GRAN | GDT_FLAG_PRESENT);
-    // set_entry(2, 0, 0xfffff, GDT_FLAG_SEGMENT | GDT_FLAG_32_BIT | GDT_FLAG_DATASEG | GDT_FLAG_4K_GRAN | GDT_FLAG_PRESENT);
-
     // for (gdt) |descriptor| {
     //     Terminal.println("0x{X:0>16} = {}", @bitCast(u64, descriptor), descriptor);
     // }

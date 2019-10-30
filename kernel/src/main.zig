@@ -5,16 +5,30 @@ const Terminal = @import("text-terminal.zig");
 const Multiboot = @import("multiboot.zig");
 const VGA = @import("vga.zig");
 const GDT = @import("gdt.zig");
+const Interrupts = @import("interrupts.zig");
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 pub fn main() anyerror!void {
     Terminal.clear();
-    Terminal.print("[ ] Initialize gdt...\r");
+    {
+        Terminal.print("[ ] Initialize gdt...\r");
+        GDT.init();
+        Terminal.println("[X");
+    }
+    {
+        Terminal.print("[ ] Initialize idt...\r");
+        Interrupts.init();
+        Terminal.println("[X");
 
-    GDT.init();
+        Terminal.print("[ ] Fire Test Interrupt\r");
+        Interrupts.trigger_isr0();
+        Terminal.println("[X");
 
-    Terminal.println("[X");
+        Terminal.print("[ ] Enable IRQs...\r");
+        Interrupts.enableIRQ();
+        Terminal.println("[X");
+    }
 
     const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
 
@@ -42,15 +56,23 @@ pub fn main() anyerror!void {
     var time: usize = 0;
     while (true) : (time += 1) {
         // Terminal.println("rnd = {}\n", rng.int(u4));
+        const slice = time & 0x3F;
+        const offset_x = (time & ~usize(0x3F)) >> 1;
+        const offset_y = (time & ~usize(0x3F)) >> 1;
+
+        const dx = if (slice < 32) slice else 32;
+        const dy = if (slice >= 32) slice - 32 else 0;
+
         var c: u4 = 0;
         var y: usize = 0;
         while (y < 480) : (y += 1) {
             var x: usize = 0;
             while (x < 640) : (x += 1) {
-                c = @truncate(u4, (x + time) / 32 + y / 32);
+                c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
                 VGA.setPixel(x, y, c);
             }
         }
+
         VGA.swapBuffers();
     }
 }
