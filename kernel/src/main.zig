@@ -26,7 +26,7 @@ pub fn main() anyerror!void {
         Terminal.println("[X");
 
         Terminal.print("[ ] Enable IRQs...\r");
-        Interrupts.enableIRQ();
+        // Interrupts.enableIRQ();
         Terminal.println("[X");
     }
 

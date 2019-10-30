@@ -64,71 +64,14 @@ comptime {
     std.debug.assert(@sizeOf(Descriptor) == 8);
 }
 
-export nakedcc fn common_isr_handler() void {
-    asm volatile (
-        \\ push %%ebp
-        \\ push %%edi
-        \\ push %%esi
-        \\ push %%edx
-        \\ push %%ecx
-        \\ push %%ebx
-        \\ push %%eax
-        \\ 
-        \\ // Handler aufrufen
-        \\ push %%esp
-        \\ call handle_interrupt
-        \\ add $4, %%esp
-        \\ 
-        \\ // CPU-Zustand wiederherstellen
-        \\ pop %%eax
-        \\ pop %%ebx
-        \\ pop %%ecx
-        \\ pop %%edx
-        \\ pop %%esi
-        \\ pop %%edi
-        \\ pop %%ebp
-        \\ 
-        \\ // Fehlercode und Interruptnummer vom Stack nehmen
-        \\ add $8, %%esp
-        \\ 
-        \\ // Ruecksprung zum unterbrochenen Code
-        \\ iret
-    );
-}
 
 export extern fn handle_interrupt(cpu: *CpuState) void {
     Terminal.setColor(.white, .magenta);
     Terminal.println("CPU State:");
     Terminal.println("{}", cpu);
-
-    while (true) {}
 }
 
-fn getInterruptStub(comptime i: u32) nakedcc fn () void {
-    const Wrapper = struct {
-        nakedcc fn stub_with_zero() void {
-            asm volatile (
-                \\ pushl $0
-                \\ pushl %[nr]
-                \\ jmp common_isr_handler
-                :
-                : [nr] "n" (i)
-            );
-        }
-        nakedcc fn stub_with_errorcode() void {
-            asm volatile (
-                \\ pushl %[nr]
-                \\ jmp common_isr_handler
-                :
-                : [nr] "n" (i)
-            );
-        }
-    };
-    return switch (i) {
-        8, 10...14, 17 => Wrapper.stub_with_errorcode,
-        else => Wrapper.stub_with_zero,
-    };
-}
+
 
 export var idt: [256]Descriptor align(16) = undefined;
 
@@ -162,3 +105,64 @@ export const idtp = InterruptTable{
     .table = &idt,
     .limit = @sizeOf(@typeOf(idt)) - 1,
 };
+
+
+
+
+export nakedcc fn common_isr_handler() void {
+    asm volatile (
+        \\ push %%ebp
+        \\ push %%edi
+        \\ push %%esi
+        \\ push %%edx
+        \\ push %%ecx
+        \\ push %%ebx
+        \\ push %%eax
+        \\ 
+        \\ // Handler aufrufen
+        \\ push %%esp
+        \\ call handle_interrupt
+        \\ add $4, %%esp
+        \\ 
+        \\ // CPU-Zustand wiederherstellen
+        \\ pop %%eax
+        \\ pop %%ebx
+        \\ pop %%ecx
+        \\ pop %%edx
+        \\ pop %%esi
+        \\ pop %%edi
+        \\ pop %%ebp
+        \\ 
+        \\ // Fehlercode und Interruptnummer vom Stack nehmen
+        \\ add $8, %%esp
+        \\ 
+        \\ // Ruecksprung zum unterbrochenen Code
+        \\ iret
+    );
+}
+
+fn getInterruptStub(comptime i: u32) nakedcc fn () void {
+    const Wrapper = struct {
+        nakedcc fn stub_with_zero() void {
+            asm volatile (
+                \\ pushl $0
+                \\ pushl %[nr]
+                \\ jmp common_isr_handler
+                :
+                : [nr] "n" (i)
+            );
+        }
+        nakedcc fn stub_with_errorcode() void {
+            asm volatile (
+                \\ pushl %[nr]
+                \\ jmp common_isr_handler
+                :
+                : [nr] "n" (i)
+            );
+        }
+    };
+    return switch (i) {
+        8, 10...14, 17 => Wrapper.stub_with_errorcode,
+        else => Wrapper.stub_with_zero,
+    };
+}
