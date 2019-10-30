@@ -10,10 +10,11 @@ export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header
 
 pub fn main() anyerror!void {
     Terminal.clear();
-    Terminal.println("Initialize gdt...");
+    Terminal.print("[ ] Initialize gdt...\r");
+
     GDT.init();
 
-    // Terminal.print("Multiboot Flags: {}\r\n", @bitCast(MultibootStructure.Flags, val));
+    Terminal.println("[X");
 
     const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
 
@@ -40,6 +41,7 @@ pub fn main() anyerror!void {
 
     var time: usize = 0;
     while (true) : (time += 1) {
+        // Terminal.println("rnd = {}\n", rng.int(u4));
         var c: u4 = 0;
         var y: usize = 0;
         while (y < 480) : (y += 1) {
@@ -63,10 +65,13 @@ fn kmain() noreturn {
         Terminal.print("\r\n\r\nmain() returned {}!", err);
     };
 
-    while (true) {}
+    Terminal.println("system haltet, shut down now!");
+    while (true) {
+        asm volatile ("hlt");
+    }
 }
 
-var kernelStack: [8192]u8 align(16) = undefined;
+var kernelStack: [1 << 16]u8 align(16) = undefined;
 
 var multiboot: *Multiboot.Structure = undefined;
 var multibootMagic: u32 = undefined;

@@ -1,5 +1,6 @@
 const std = @import("std");
 const io = @import("io.zig");
+const Terminal = @import("text-terminal.zig");
 
 const outportb = io.outb;
 const inportb = io.inb;
@@ -75,10 +76,10 @@ pub fn init() void {
     // write_regs(g_320x200x256);
 }
 
-fn get_fb_seg() [*]u8 {
+fn get_fb_seg() [*]volatile u8 {
     outportb(VGA_GC_INDEX, 6);
     const seg = (inportb(VGA_GC_DATA) >> 2) & 3;
-    return @intToPtr([*]u8, switch (@truncate(u2, seg)) {
+    return @intToPtr([*]volatile u8, switch (@truncate(u2, seg)) {
         0, 1 => u32(0xA0000),
         2 => u32(0xB0000),
         3 => u32(0xB8000),
@@ -119,12 +120,12 @@ pub fn setPixel(x: usize, y: usize, c: u4) void {
 pub fn swapBuffers() void {
     const bytes_per_line = 640 / 8;
 
-    var segment = get_fb_seg();
-
     var plane: usize = 0;
     while (plane < 4) : (plane += 1) {
         const plane_mask: u8 = u8(1) << @truncate(u3, plane);
         setPlane(@truncate(u2, plane));
+
+        var segment = get_fb_seg();
 
         var y: usize = 0;
         while (y < 480) : (y += 1) {
