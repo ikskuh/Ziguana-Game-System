@@ -1,7 +1,125 @@
 const std = @import("std");
+const io = @import("io.zig");
 const Terminal = @import("text-terminal.zig");
 
-const CpuState = packed struct {
+pub const InterruptHandler = fn (*CpuState) *CpuState;
+
+var irqHandlers = [_]?InterruptHandler{null} ** 32;
+
+pub fn setIRQHandler(irq: u4, handler: ?InterruptHandler) void {
+    irqHandlers[irq] = handler;
+}
+
+export fn handle_interrupt(_cpu: *CpuState) *CpuState {
+    var cpu = _cpu;
+    switch (cpu.interrupt) {
+        0x00...0x1F => {
+            // Exception
+            Terminal.setColors(.white, .magenta);
+            Terminal.println("Unhandled exception:\r\n{}", cpu);
+            Terminal.resetColors();
+
+            while (true) {
+                asm volatile (
+                    \\ cli
+                    \\ hlt
+                );
+            }
+        },
+        0x20...0x2F => {
+            // IRQ
+            if (irqHandlers[cpu.interrupt - 0x20]) |handler| {
+                cpu = handler(cpu);
+            } else {
+                Terminal.println("Unhandled IRQ{}:\r\n{}", cpu.interrupt - 0x20, cpu);
+            }
+
+            if (cpu.interrupt >= 0x28) {
+                io.outb(0xa0, 0x20); // ACK slave PIC
+            }
+            io.outb(0x20, 0x20); // ACK master PIC
+        },
+        else => {
+            Terminal.println("Unhandled interrupt:\r\n{}", cpu);
+        },
+    }
+
+    return cpu;
+}
+
+export var idt: [256]Descriptor align(16) = undefined;
+
+pub fn init() void {
+    comptime var i: usize = 0;
+    inline while (i < idt.len) : (i += 1) {
+        idt[i] = Descriptor.init(getInterruptStub(i), 0x08, .interruptGate, .bits32, 0, true);
+    }
+
+    asm volatile ("lidt idtp");
+
+    // Master-PIC initialisieren
+    io.outb(0x20, 0x11); // Initialisierungsbefehl fuer den PIC
+    io.outb(0x21, 0x20); // Interruptnummer fuer IRQ 0
+    io.outb(0x21, 0x04); // An IRQ 2 haengt der Slave
+    io.outb(0x21, 0x01); // ICW 4
+
+    // Slave-PIC initialisieren
+    io.outb(0xa0, 0x11); // Initialisierungsbefehl fuer den PIC
+    io.outb(0xa1, 0x28); // Interruptnummer fuer IRQ 8
+    io.outb(0xa1, 0x02); // An IRQ 2 haengt der Slave
+    io.outb(0xa1, 0x01); // ICW 4
+}
+
+pub fn fireInterrupt(comptime intr: u32) void {
+    asm volatile ("int %[i]"
+        :
+        : [i] "n" (intr)
+    );
+}
+
+pub fn enableIRQ(irqNum: u4) void {
+    switch (irqNum) {
+        0...7 => {
+            io.outb(0x21, io.inb(0x21) & ~(u8(1) << @intCast(u3, irqNum)));
+        },
+        8...15 => {
+            io.outb(0x21, io.inb(0x21) & ~(u8(1) << @intCast(u3, irqNum - 8)));
+        },
+    }
+}
+
+pub fn disableIRQ(irqNum: u4) void {
+    switch (irqNum) {
+        0...7 => {
+            io.outb(0x21, io.inb(0x21) | (u8(1) << @intCast(u3, irqNum)));
+        },
+        8...15 => {
+            io.outb(0x21, io.inb(0x21) | (u8(1) << @intCast(u3, irqNum - 8)));
+        },
+    }
+}
+
+pub fn enableAllIRQs() void {
+    // Alle IRQs aktivieren (demaskieren)
+    io.outb(0x21, 0x0);
+    io.outb(0xa1, 0x0);
+}
+
+pub fn disableAllIRQs() void {
+    // Alle IRQs aktivieren (demaskieren)
+    io.outb(0x21, 0xFF);
+    io.outb(0xa1, 0xFF);
+}
+
+pub fn enableExternalInterrupts() void {
+    asm volatile ("sti");
+}
+
+pub fn disableExternalInterrupts() void {
+    asm volatile ("cli");
+}
+
+pub const CpuState = packed struct {
     // Von Hand gesicherte Register
     eax: u32,
     ebx: u32,
@@ -11,7 +129,7 @@ const CpuState = packed struct {
     edi: u32,
     ebp: u32,
 
-    intr: u32,
+    interrupt: u32,
     errorcode: u32,
 
     // Von der CPU gesichert
@@ -64,38 +182,6 @@ comptime {
     std.debug.assert(@sizeOf(Descriptor) == 8);
 }
 
-
-export extern fn handle_interrupt(cpu: *CpuState) void {
-    Terminal.setColor(.white, .magenta);
-    Terminal.println("CPU State:");
-    Terminal.println("{}", cpu);
-}
-
-
-
-export var idt: [256]Descriptor align(16) = undefined;
-
-pub fn init() void {
-    comptime var i: usize = 0;
-    inline while (i < idt.len) : (i += 1) {
-        idt[i] = Descriptor.init(getInterruptStub(i), 0x08, .interruptGate, .bits32, 0, true);
-    }
-
-    asm volatile ("lidt idtp");
-}
-
-pub fn trigger_isr0() void {
-    asm volatile ("int $0x0");
-}
-
-pub fn enableIRQ() void {
-    asm volatile ("sti");
-}
-
-pub fn disableIRQ() void {
-    asm volatile ("cli");
-}
-
 const InterruptTable = packed struct {
     limit: u16,
     table: [*]Descriptor,
@@ -105,9 +191,6 @@ export const idtp = InterruptTable{
     .table = &idt,
     .limit = @sizeOf(@typeOf(idt)) - 1,
 };
-
-
-
 
 export nakedcc fn common_isr_handler() void {
     asm volatile (
@@ -122,7 +205,7 @@ export nakedcc fn common_isr_handler() void {
         \\ // Handler aufrufen
         \\ push %%esp
         \\ call handle_interrupt
-        \\ add $4, %%esp
+        \\ mov %%eax, %%esp
         \\ 
         \\ // CPU-Zustand wiederherstellen
         \\ pop %%eax

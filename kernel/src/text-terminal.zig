@@ -66,7 +66,7 @@ pub fn setBackgroundColor(color: Color) void {
     currentBackground = color;
 }
 
-pub fn setColor(foreground: Color, background: Color) void {
+pub fn setColors(foreground: Color, background: Color) void {
     currentBackground = background;
     currentForeground = foreground;
 }

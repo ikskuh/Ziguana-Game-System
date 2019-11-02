@@ -6,8 +6,17 @@ const Multiboot = @import("multiboot.zig");
 const VGA = @import("vga.zig");
 const GDT = @import("gdt.zig");
 const Interrupts = @import("interrupts.zig");
+const Keyboard = @import("keyboard.zig");
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
+
+var systemTicks: u64 = 0;
+
+fn handleTimerIRQ(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
+    systemTicks += 1;
+
+    return cpu;
+}
 
 pub fn main() anyerror!void {
     Terminal.clear();
@@ -21,12 +30,20 @@ pub fn main() anyerror!void {
         Interrupts.init();
         Terminal.println("[X");
 
-        Terminal.print("[ ] Fire Test Interrupt\r");
-        Interrupts.trigger_isr0();
-        Terminal.println("[X");
+        // Terminal.print("[ ] Fire Test Interrupt\r");
+        // Interrupts.trigger_isr(45);
+        // Terminal.println("[X");
+
+        Interrupts.setIRQHandler(0, handleTimerIRQ);
 
         Terminal.print("[ ] Enable IRQs...\r");
-        // Interrupts.enableIRQ();
+        Interrupts.enableExternalInterrupts();
+        Interrupts.enableAllIRQs();
+        Terminal.println("[X");
+    }
+    {
+        Terminal.print("[ ] Enable Keyboard...\r");
+        Keyboard.init();
         Terminal.println("[X");
     }
 
@@ -50,25 +67,27 @@ pub fn main() anyerror!void {
 
     VGA.init();
 
-    // var rng_engine = std.rand.DefaultPrng.init(0);
-    // var rng = &rng_engine.random;
+    var rng_engine = std.rand.DefaultPrng.init(0);
+    var rng = &rng_engine.random;
 
     var time: usize = 0;
+    var color: u4 = 1;
     while (true) : (time += 1) {
-        // Terminal.println("rnd = {}\n", rng.int(u4));
-        const slice = time & 0x3F;
-        const offset_x = (time & ~usize(0x3F)) >> 1;
-        const offset_y = (time & ~usize(0x3F)) >> 1;
+        if (Keyboard.getKey()) |key| {
+            if (key.set == .default and key.scancode == 57) {
+                // space
+                if (@addWithOverflow(u4, color, 1, &color)) {
+                    color = 1;
+                }
+            }
+        }
 
-        const dx = if (slice < 32) slice else 32;
-        const dy = if (slice >= 32) slice - 32 else 0;
-
-        var c: u4 = 0;
         var y: usize = 0;
         while (y < 480) : (y += 1) {
             var x: usize = 0;
             while (x < 640) : (x += 1) {
-                c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
+                // c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
+                const c = if (y > (systemTicks % 480)) color else 0;
                 VGA.setPixel(x, y, c);
             }
         }
@@ -83,7 +102,7 @@ fn kmain() noreturn {
     }
 
     main() catch |err| {
-        Terminal.setColor(.white, .red);
+        Terminal.setColors(.white, .red);
         Terminal.print("\r\n\r\nmain() returned {}!", err);
     };
 
@@ -115,7 +134,7 @@ export nakedcc fn _start() noreturn {
 
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
-    Terminal.setColor(.white, .red);
+    Terminal.setColors(.white, .red);
     Terminal.print("\r\n\r\nKERNEL PANIC:\r\n{}", msg);
     while (true) {}
 }
