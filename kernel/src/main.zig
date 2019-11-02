@@ -8,6 +8,8 @@ const GDT = @import("gdt.zig");
 const Interrupts = @import("interrupts.zig");
 const Keyboard = @import("keyboard.zig");
 
+const Assembler = @import("assembler.zig");
+
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 var systemTicks: u64 = 0;
@@ -57,8 +59,6 @@ pub fn main() anyerror!void {
             }
         }
     }
-
-    var vgaMemory = @intToPtr([*]u8, 0xA0000);
 
     Terminal.print("VGA init...\r\n");
 

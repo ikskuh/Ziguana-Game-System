@@ -14,6 +14,7 @@
 #	decimal or hexadecimal numbers are used as literals
 #	label names can be used instead of literals for the address of the label
 #	[…] is an indirection and stores/loads from the memory address … instead of using … as an immediate value
+#	[…+n] is an indirection similar to […], but it will offset the address in … by n bytes.
 #
 # Note: *x means that x may be modified
 # Instructions:
@@ -34,10 +35,18 @@
 # Directives:
 #	.def NAME, value | creates new constant NAME with value value.
 #	.dw a,…          | stores literal 32bit word a, … at the current position
+#	.align v         | aligns the current position with v bytes
 #
 # Labels:
 #	name:            | global label "name"
-#	.loc:            | local label "loc". can only be used/references between to global labels.
+#	'loc:            | local label "loc". can only be used/references between to global labels.
+
+# Workspace:
+#	jsr label
+#	push x
+#	pop x
+#
+#
 
 .def BGCOLOR, 0
 .def PLAYERCOLOR, 1
@@ -80,7 +89,7 @@ gameLoop:
 	shl r0, 1
 	add r0, dirs
 	mov r1, [r0+0]
-	mov r2, [r0+1]
+	mov r2, [r0+4]
 
 	# Move player a bit
 	add [playerX], r1
