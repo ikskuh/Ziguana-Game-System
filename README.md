@@ -17,7 +17,7 @@ to the PICO-8, LIKO-12 or TIC-80.
 
 
 
-GASM
+## GASM
 The *Game Assembly* language is a fake assembly language that
 behaves similar to x86 asm. It supports not only generic
 instructions to manipulate memory, but also has special
@@ -68,7 +68,7 @@ Register Names (32 bit):
 Note: `*x` means that `x` may be modified.
 
 | Instruction     | Description |
-|----------------'|'------------|
+|-----------------|-------------|
 | `mov *dst, src` | copies src to dst |
 | `add *dst, val` | adds val to dst |
 | `cmp a, b`      | compares a to b and stores result in | flags. Z is set when a==b, C is set when a < b |
