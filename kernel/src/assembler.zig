@@ -10,7 +10,7 @@ const Operand = union(enum) {
         immediate: u32,
     };
 
-    const Indirect = union(enum) {
+    const Indirect = struct {
         source: Direct,
         offset: ?i32,
     };
@@ -20,6 +20,21 @@ const Instruction = struct {
     mnemonic: []const u8,
     operands: [3]Operand,
     operandCount: usize,
+
+    fn new(mn: []const u8) Instruction {
+        return Instruction{
+            .mnemonic = mn,
+            .operandCount = 0,
+            .operands = undefined,
+        };
+    }
+
+    fn addOperand(this: *Instruction, oper: Operand) !void {
+        if (this.operandCount >= this.operands.len)
+            return error.TooManyOperands;
+        this.operands[this.operandCount] = oper;
+        this.operandCount += 1;
+    }
 };
 
 const Element = union(enum) {
@@ -28,7 +43,6 @@ const Element = union(enum) {
     data8: u8,
     data16: u16,
     data32: u32,
-    data64: u64,
     alignment: u32,
 };
 
@@ -61,7 +75,7 @@ const Parser = struct {
         beginIndirection, // [
         endIndirection, // ]
         identifier, // [A-Za-z][A-Za-z0-9]+
-        directive, // .foo
+        directiveOrLabel, // .foo
         lineBreak, // '\n'
         positiveOffset, // '+'
         negativeOffset, // '-'
@@ -100,6 +114,12 @@ const Parser = struct {
     }
 
     fn readToken(this: *Parser) !?Token {
+        //     const token = this.readTokenNoDebug();
+        //     std.debug.warn("token: {}\n", token);
+        //     return token;
+        // }
+
+        // fn readTokenNoDebug(this: *Parser) !?Token {
         if (this.offset >= this.source.len)
             return null;
 
@@ -115,7 +135,8 @@ const Parser = struct {
                     if (this.offset >= this.source.len)
                         return null;
                 }
-                this.offset += 1;
+
+                // don't eat the delimiting newline, otherwise trailing comments will fail
             } else if (c == ' ' or c == '\t') {
                 this.offset += 1;
             } else {
@@ -141,7 +162,7 @@ const Parser = struct {
                 };
             },
 
-            // is either .label or .directive
+            // is either .label or .directiveOrLabel
             '.' => {
                 const start = this.offset;
                 var end = start + 1;
@@ -161,8 +182,8 @@ const Parser = struct {
                     };
                 } else {
                     return Token{
-                        .type = .directive,
-                        .value = this.source[start..end],
+                        .type = .directiveOrLabel,
+                        .value = this.source[start + 1 .. end],
                     };
                 }
             },
@@ -187,9 +208,24 @@ const Parser = struct {
                         .value = this.source[start..end],
                     };
                 } else {
+                    const text = this.source[start..end];
+
+                    comptime var i = 0;
+                    inline while (i < 16) : (i += 1) {
+                        comptime var registerName: [3]u8 = "r??";
+                        comptime var len = std.fmt.formatIntBuf(registerName[1..], i, 10, false, std.fmt.FormatOptions{});
+                        // @compileLog(i, registerName[0 .. 1 + len]);
+                        if (std.mem.eql(u8, text, registerName[0 .. 1 + len])) {
+                            return Token{
+                                .type = .registerName,
+                                .value = text,
+                            };
+                        }
+                    }
+
                     return Token{
                         .type = .identifier,
-                        .value = this.source[start..end],
+                        .value = text,
                     };
                 }
             },
@@ -229,12 +265,199 @@ const Parser = struct {
         return null;
     }
 
-    fn readNext(this: *Parser) !?Element {
-        while (try this.readToken()) |token| {
-            std.debug.warn("token: {}\n", token);
-        }
-        return null;
+    fn readExpectedToken(this: *Parser, comptime _type: TokenType) ![]const u8 {
+        const token = (try this.readToken()) orelse return error.UnexpectedEndOfText;
+        if (token.type != _type)
+            return error.UnexpectedToken;
+        return token.value;
     }
+
+    fn readAnyExpectedToken(this: *Parser, allowedTypes: []const TokenType) !Token {
+        const token = (try this.readToken()) orelse return error.UnexpectedEndOfText;
+        for (allowedTypes) |val| {
+            if (token.type == val)
+                return token;
+        }
+        return error.UnexpectedToken;
+    }
+
+    state: State = .default,
+
+    fn convertTokenToNumber(token: Token) !u32 {
+        return switch (token.type) {
+            .hexnum => try std.fmt.parseInt(u32, token.value[2..], 16),
+            .decnum => try std.fmt.parseInt(u32, token.value, 10),
+            else => return error.UnexpectedToken,
+        };
+    }
+
+    fn convertTokenToDirectOperand(token: Token) !Operand.Direct {
+        return switch (token.type) {
+            .registerName => Operand.Direct{
+                .register = try std.fmt.parseInt(u4, token.value[1..], 10),
+            },
+            .identifier, .directiveOrLabel => Operand.Direct{
+                .label = token.value,
+            },
+            .hexnum, .decnum => Operand.Direct{
+                .immediate = try convertTokenToNumber(token),
+            },
+            else => return error.UnexpectedToken,
+        };
+    }
+
+    fn readNumberToken(this: *Parser) !u32 {
+        return try convertTokenToNumber(try this.readAnyExpectedToken(([_]TokenType{ .decnum, .hexnum })[0..]));
+    }
+
+    fn readNext(this: *Parser) !?Element {
+        // loop until we return
+        while (true) {
+            var token = (try this.readToken()) orelse return null;
+
+            if (token.type == .lineBreak) {
+                // line breaks will stop any special processing from directives
+                this.state = .default;
+                continue;
+            }
+
+            switch (this.state) {
+                .default => {
+                    switch (token.type) {
+                        .directiveOrLabel => {
+                            if (std.mem.eql(u8, token.value, "def")) {
+                                const name = try this.readExpectedToken(.identifier);
+                                _ = try this.readExpectedToken(.comma);
+                                const value = try this.readNumberToken();
+
+                                // TODO: Handle .def
+                            } else if (std.mem.eql(u8, token.value, "undef")) {
+                                const name = try this.readExpectedToken(.identifier);
+                            } else if (std.mem.eql(u8, token.value, "d8")) {
+                                this.state = .readsD8;
+                            } else if (std.mem.eql(u8, token.value, "d16")) {
+                                this.state = .readsD16;
+                            } else if (std.mem.eql(u8, token.value, "d32") or std.mem.eql(u8, token.value, "dw")) {
+                                this.state = .readsD32;
+                            } else {
+                                return error.UnknownDirective;
+                            }
+                        },
+                        .label => {
+                            return Element{
+                                .label = token.value,
+                            };
+                        },
+
+                        // is a mnemonic/instruction
+                        .identifier => {
+                            var instruction = Instruction.new(token.value);
+
+                            // read operands
+                            var readDelimiterNext = false;
+                            var isFirst = true;
+                            while (true) {
+                                const subtok = (try this.readToken()) orelse return error.UnexpectedEndOfText;
+
+                                if (isFirst and subtok.type == .lineBreak)
+                                    break;
+                                isFirst = false;
+
+                                if (readDelimiterNext) {
+                                    // is either comma for another operand or lineBreak for "end of operands"
+                                    switch (subtok.type) {
+                                        .lineBreak => break,
+                                        .comma => {},
+                                        else => return error.UnexpectedToken,
+                                    }
+                                    readDelimiterNext = false;
+                                } else {
+                                    // is an operand value
+                                    switch (subtok.type) {
+                                        .identifier, .hexnum, .decnum, .directiveOrLabel, .registerName => {
+                                            try instruction.addOperand(Operand{
+                                                .direct = try convertTokenToDirectOperand(subtok),
+                                            });
+                                        },
+                                        .beginIndirection => {
+                                            const directOperand = try convertTokenToDirectOperand((try this.readToken()) orelse return error.UnexpectedEndOfText);
+
+                                            const something = try this.readAnyExpectedToken(([_]TokenType{ .endIndirection, .positiveOffset, .negativeOffset })[0..]);
+                                            const result = switch (something.type) {
+                                                .endIndirection => Operand.Indirect{
+                                                    .source = directOperand,
+                                                    .offset = null,
+                                                },
+                                                .positiveOffset => blk: {
+                                                    const num = try this.readNumberToken();
+                                                    _ = try this.readExpectedToken(.endIndirection);
+                                                    break :blk Operand.Indirect{
+                                                        .source = directOperand,
+                                                        .offset = @intCast(i32, num),
+                                                    };
+                                                },
+                                                .negativeOffset => blk: {
+                                                    const num = try this.readNumberToken();
+                                                    _ = try this.readExpectedToken(.endIndirection);
+                                                    break :blk Operand.Indirect{
+                                                        .source = directOperand,
+                                                        .offset = -@intCast(i32, num),
+                                                    };
+                                                },
+                                                else => return error.UnexpectedToken,
+                                            };
+
+                                            try instruction.addOperand(Operand{
+                                                .indirect = result,
+                                            });
+                                        },
+                                        else => return error.UnexpectedToken,
+                                    }
+                                    readDelimiterNext = true;
+                                }
+                            }
+                            return Element{ .instruction = instruction };
+                        },
+
+                        else => return error.UnexpectedToken,
+                    }
+                },
+                .readsD8, .readsD16, .readsD32 => {
+                    switch (token.type) {
+                        .decnum, .hexnum => {
+                            const num = try convertTokenToNumber(token);
+                            return switch (this.state) {
+                                .readsD8 => Element{
+                                    .data8 = @intCast(u8, num),
+                                },
+                                .readsD16 => Element{
+                                    .data16 = @intCast(u16, num),
+                                },
+                                .readsD32 => Element{
+                                    .data32 = num,
+                                },
+
+                                else => unreachable,
+                            };
+                        },
+                        .identifier => {
+                            // TODO: Support definitions and labels here
+                            return error.NotImplementedYet;
+                        },
+                        .comma => {},
+                        else => return error.UnexpectedToken,
+                    }
+                },
+            }
+        }
+    }
+
+    const State = enum {
+        default,
+        readsD8,
+        readsD16,
+        readsD32,
+    };
 };
 
 pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8) !void {
@@ -261,6 +484,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
     defer patchlist.deinit();
 
     while (try parser.readNext()) |label_or_instruction| {
+        std.debug.warn("semantic element: {}\n", label_or_instruction);
         switch (label_or_instruction) {
             .label => |lbl| {
                 if (lbl[0] == '.') {
@@ -282,9 +506,6 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
                 try writer.write(data);
             },
             .data32 => |data| {
-                try writer.write(data);
-            },
-            .data64 => |data| {
                 try writer.write(data);
             },
             .alignment => |al| {
@@ -318,7 +539,7 @@ const Writer = struct {
         try this.ensureSpace(@sizeOf(T));
         switch (T) {
             u8, u16, u32, u64 => {
-                std.mem.copy(u8, this.target[this.offset .. this.offset + @sizeOf(T)], @sliceToBytes(@ptrCast([*]const T, &value)[0..@sizeOf(T)]));
+                std.mem.copy(u8, this.target[this.offset .. this.offset + @sizeOf(T)], std.mem.asBytes(&value));
                 this.offset += @sizeOf(T);
             },
             else => @compileError(@typeName(@typeOf(value)) ++ " is not supported by writer!"),

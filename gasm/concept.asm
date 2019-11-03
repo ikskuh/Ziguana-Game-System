@@ -55,8 +55,7 @@
 .def DOWN,  0x10050 # escaped0 scancode 80
 .def RIGHT, 0x1004D # escaped0 scancode 77
 
-init:
-	jmp resetGame
+init: jmp resetGame
 
 resetGame:
 	mov [playerX], 320
@@ -148,8 +147,8 @@ playerDir:
 dirs:
 	.dw 1, 0
 	.dw 0, 1
-	.dw -1, 0
-	.dw 0, -1
+	.dw 0xFFFFFFFF, 0
+	.dw 0, 0xFFFFFFFF
 
 nextFrame:
 	.dw 0
