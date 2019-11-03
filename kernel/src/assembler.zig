@@ -871,10 +871,13 @@ const InstructionCore = struct {
     fn jmp(writer: *Writer, pos: InstrInput) WriterError!void {
         switch (pos) {
             .immediate => |imm| {
-                // FF2544332211      jmp [dword 0x11223344]
-                try writer.write(u8(0xFF));
-                try writer.write(u8(0x25));
+                // B844332211        mov eax,0x11223344
+                try writer.write(u8(0xB8));
                 try writer.write(imm);
+
+                // FFE0              jmp eax
+                try writer.write(u8(0xFF));
+                try writer.write(u8(0xE0));
             },
             .indirection => |ind| {
                 if (ind.offset != 0) {
