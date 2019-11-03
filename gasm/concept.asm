@@ -80,19 +80,19 @@ gameLoop:
 	jmp gameLoop
 	
 .moveUp:
-	mov [dir], 1
+	mov [playerDir], 1
 	jmp .vsync
 
 .moveDown:
-	mov [dir], 3
+	mov [playerDir], 3
 	jmp .vsync
 
 .moveRight:
-	mov [dir], 0
+	mov [playerDir], 0
 	jmp .vsync
 
 .moveLeft:
-	mov [dir], 2
+	mov [playerDir], 2
 	jmp .vsync
 
 loseGame:

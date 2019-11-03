@@ -711,6 +711,8 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
             std.debug.warn("\t{}\n", lbl);
         }
     }
+
+    try writer.applyPatches(labels);
 }
 
 const LabelRef = struct {
@@ -761,7 +763,8 @@ const Writer = struct {
     patchlist: std.ArrayList(Patch),
 
     const Patch = struct {
-        offset: u32,
+        offset_to_binary: u32,
+        offset_to_value: i32,
         label: []const u8,
     };
 
@@ -777,34 +780,60 @@ const Writer = struct {
         this.patchlist.deinit();
     }
 
+    fn applyPatches(this: *Writer, labels: Labels) !void {
+
+        // on deinit, we will flush our patchlist and apply all patches:
+        var iter = this.patchlist.iterator();
+        while (iter.next()) |patch| {
+            const lbl = labels.get(patch.label);
+            std.debug.warn("Patching {} to {}\n", patch, lbl);
+            if (lbl.offset) |local_offset| {
+                const off = local_offset + @bitCast(u32, patch.offset_to_value);
+                std.mem.copy(u8, this.target[patch.offset_to_binary .. patch.offset_to_binary + 4], std.mem.asBytes(&off));
+            } else {
+                return error.UnknownLabel;
+            }
+        }
+
+        this.patchlist.shrink(0);
+    }
+
     fn ensureSpace(this: *Writer, size: usize) WriterError!void {
         if (this.offset + size > this.target.len)
             return error.NotEnoughSpace;
     }
 
     fn write(this: *Writer, value: var) WriterError!void {
+        try this.writeWithOffset(value, 0);
+    }
+
+    fn writeWithOffset(this: *Writer, value: var, offset: i32) WriterError!void {
         const T = @typeOf(value);
         switch (T) {
             u8, u16, u32, u64, i8, i16, i32, i64 => {
+                var val = value + @intCast(T, offset);
                 try this.ensureSpace(@sizeOf(T));
-                std.mem.copy(u8, this.target[this.offset .. this.offset + @sizeOf(T)], std.mem.asBytes(&value));
+                std.mem.copy(u8, this.target[this.offset .. this.offset + @sizeOf(T)], std.mem.asBytes(&val));
                 this.offset += @sizeOf(T);
             },
             LabelRef => {
                 try this.ensureSpace(4);
-                if (value.offset) |offset| {
-                    std.mem.copy(u8, this.target[this.offset .. this.offset + 4], std.mem.asBytes(&offset));
+                if (value.offset) |local_offset| {
+                    //  this assumes twos complement
+                    const off = local_offset + @bitCast(u32, offset);
+                    std.mem.copy(u8, this.target[this.offset .. this.offset + 4], std.mem.asBytes(&off));
                 } else {
                     try this.patchlist.append(Patch{
                         .label = value.label,
-                        .offset = this.offset,
+                        .offset_to_binary = this.offset,
+                        .offset_to_value = offset,
                     });
                 }
                 this.offset += 4;
             },
             ImmediateOrLabel => switch (value) {
-                .immediate => |v| try this.write(v),
-                .label => |v| try this.write(v),
+                .immediate => |v| try this.writeWithOffset(v, offset),
+                .label => |v| try this.writeWithOffset(v, offset),
             },
             else => @compileError(@typeName(@typeOf(value)) ++ " is not supported by writer!"),
         }
@@ -832,6 +861,64 @@ const InstrOutput = union(enum) {
                 try std.fmt.format(context, Errors, output, "*[[{}]+{}]", dind.address, dind.offset),
         }
     }
+
+    /// Loads the operands value into EAX.
+    /// Does not modify anything except EAX.
+    pub fn loadToEAX(this: InstrOutput, writer: *Writer) !void {
+        switch (this) {
+            .indirection => |ind| {
+                // A144332211        mov eax,[0x11223344]
+                try writer.write(u8(0xA1));
+                try writer.writeWithOffset(ind.address, ind.offset);
+            },
+            // actually only required when someone does `[reg]`
+            .doubleIndirection => |ind| {
+                // A144332211        mov eax,[0x11223344]
+                try writer.write(u8(0xA1));
+                try writer.write(ind.address);
+
+                if (ind.offset != 0) {
+                    // 8B8044332211      mov eax,[eax+0x11223344]
+                    try writer.write(u8(0x8B));
+                    try writer.write(u8(0x80));
+                    try writer.write(ind.offset);
+                } else {
+                    // 8B00              mov eax,[eax]
+                    try writer.write(u8(0x8B));
+                    try writer.write(u8(0x00));
+                }
+            },
+        }
+    }
+
+    /// Saves EAX into the operands location. Clobbers EBX
+    pub fn saveFromEAX(this: InstrOutput, writer: *Writer) !void {
+        switch (this) {
+            .indirection => |ind| {
+                // A344332211        mov [0x11223344],eax
+                try writer.write(u8(0xA3));
+                try writer.writeWithOffset(ind.address, ind.offset);
+            },
+            // actually only required when someone does `[reg]`
+            .doubleIndirection => |ind| {
+                // 8B 1D 44332211      mov ebx,[dword 0x11223344]
+                try writer.write(u8(0x8B));
+                try writer.write(u8(0x1D));
+                try writer.write(ind.address);
+
+                if (ind.offset != 0) {
+                    // 898344332211      mov [ebx+0x11223344],eax
+                    try writer.write(u8(0x89));
+                    try writer.write(u8(0x83));
+                    try writer.write(ind.offset);
+                } else {
+                    // 8903              mov [ebx],eax
+                    try writer.write(u8(0x89));
+                    try writer.write(u8(0x03));
+                }
+            },
+        }
+    }
 };
 
 const InstrInput = union(enum) {
@@ -852,12 +939,47 @@ const InstrInput = union(enum) {
                 try std.fmt.format(context, Errors, output, "[[{}]+{}]", dind.address, dind.offset),
         }
     }
+
+    /// Loads the operands value into EAX.
+    /// Does not modify anything except EAX.
+    pub fn loadToEAX(this: InstrInput, writer: *Writer) !void {
+        switch (this) {
+            .immediate => |imm| {
+                // B844332211        mov eax,0x11223344
+                try writer.write(u8(0xB8));
+                try writer.write(imm);
+            },
+            .indirection => |ind| {
+                // A144332211        mov eax,[0x11223344]
+                try writer.write(u8(0xA1));
+                try writer.writeWithOffset(ind.address, ind.offset);
+            },
+            // actually only required when someone does `[reg]`
+            .doubleIndirection => |ind| {
+                // A144332211        mov eax,[0x11223344]
+                try writer.write(u8(0xA1));
+                try writer.write(ind.address);
+
+                if (ind.offset != 0) {
+                    // 8B8044332211      mov eax,[eax+0x11223344]
+                    try writer.write(u8(0x8B));
+                    try writer.write(u8(0x80));
+                    try writer.write(ind.offset);
+                } else {
+                    // 8B00              mov eax,[eax]
+                    try writer.write(u8(0x8B));
+                    try writer.write(u8(0x00));
+                }
+            },
+        }
+    }
 };
 
 /// Contains emitter functions for every possible instructions.
 const InstructionCore = struct {
     fn mov(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
-        std.debug.warn("mov {}, {}\n", dst, src);
+        try src.loadToEAX(writer);
+        try dst.saveFromEAX(writer);
     }
     fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         std.debug.warn("add {}, {}\n", dst, src);
@@ -880,21 +1002,10 @@ const InstructionCore = struct {
                 try writer.write(u8(0xE0));
             },
             .indirection => |ind| {
-                if (ind.offset != 0) {
-                    // FF2544332211      jmp [dword 0x11223344]
-                    try writer.write(u8(0xFF));
-                    try writer.write(u8(0x25));
-                    try writer.write(ind.address);
-                } else {
-                    // B844332211        mov eax,0x11223344
-                    try writer.write(u8(0xB4));
-                    try writer.write(ind.address);
-
-                    // FFA044332211      jmp [eax+0x11223344]
-                    try writer.write(u8(0xFF));
-                    try writer.write(u8(0xA0));
-                    try writer.write(ind.offset);
-                }
+                // FF2544332211      jmp [dword 0x11223344]
+                try writer.write(u8(0xFF));
+                try writer.write(u8(0x25));
+                try writer.writeWithOffset(ind.address, ind.offset);
             },
             // actually only required when someone does `[reg]`
             .doubleIndirection => |ind| {

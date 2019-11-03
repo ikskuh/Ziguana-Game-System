@@ -1,3 +1,15 @@
+# Implements a simple "light race game"
+# Control player with arrow keys
+# Don't hit your own trace
+
+
+# Workspace:
+#	jsr label
+#	push x
+#	pop x
+#	and, or, inv, neg
+#
+
 .def BGCOLOR, 0
 .def PLAYERCOLOR, 1
 .def UP,    0x10048 # escaped0 scancode 72
@@ -68,19 +80,19 @@ gameLoop:
 	jmp gameLoop
 	
 .moveUp:
-	mov [dir], 1
+	mov [playerDir], 1
 	jmp .vsync
 
 .moveDown:
-	mov [dir], 3
+	mov [playerDir], 3
 	jmp .vsync
 
 .moveRight:
-	mov [dir], 0
+	mov [playerDir], 0
 	jmp .vsync
 
 .moveLeft:
-	mov [dir], 2
+	mov [playerDir], 2
 	jmp .vsync
 
 loseGame:
