@@ -4,15 +4,43 @@ const Operand = union(enum) {
     direct: Direct,
     indirect: Indirect,
 
+    fn print(this: Operand) void {
+        switch (this) {
+            .direct => |o| o.print(),
+            .indirect => |o| o.print(),
+        }
+    }
+
     const Direct = union(enum) {
         register: u4,
         label: []const u8,
         immediate: u32,
+
+        fn print(this: Direct) void {
+            switch (this) {
+                .register => |r| std.debug.warn("r{}", r),
+                .label => |r| std.debug.warn("{}", r),
+                .immediate => |r| std.debug.warn("{}", r),
+            }
+        }
     };
 
     const Indirect = struct {
         source: Direct,
         offset: ?i32,
+
+        fn print(this: Indirect) void {
+            std.debug.warn("[");
+            this.source.print();
+            if (this.offset) |offset| {
+                if (offset < 0) {
+                    std.debug.warn("{}", offset);
+                } else {
+                    std.debug.warn("+{}", offset);
+                }
+            }
+            std.debug.warn("]");
+        }
     };
 };
 
@@ -51,14 +79,14 @@ const Parser = struct {
     source: []const u8,
     offset: usize,
 
-    constants: std.StringHashMap(u32),
+    constants: std.StringHashMap(Token),
 
     fn init(allocator: *std.mem.Allocator, source: []const u8) Parser {
         return Parser{
             .allocator = allocator,
             .source = source,
             .offset = 0,
-            .constants = std.StringHashMap(u32).init(allocator),
+            .constants = std.StringHashMap(Token).init(allocator),
         };
     }
 
@@ -183,7 +211,7 @@ const Parser = struct {
                 } else {
                     return Token{
                         .type = .directiveOrLabel,
-                        .value = this.source[start + 1 .. end],
+                        .value = this.source[start..end],
                     };
                 }
             },
@@ -221,6 +249,11 @@ const Parser = struct {
                                 .value = text,
                             };
                         }
+                    }
+
+                    if (this.constants.get(text)) |kv| {
+                        // return stored token from .def
+                        return kv.value;
                     }
 
                     return Token{
@@ -325,21 +358,28 @@ const Parser = struct {
                 .default => {
                     switch (token.type) {
                         .directiveOrLabel => {
-                            if (std.mem.eql(u8, token.value, "def")) {
+                            if (std.mem.eql(u8, token.value, ".def")) {
                                 const name = try this.readExpectedToken(.identifier);
                                 _ = try this.readExpectedToken(.comma);
-                                const value = try this.readNumberToken();
+                                const value = (try this.readToken()) orelse return error.UnexpectedEndOfText;
 
-                                // TODO: Handle .def
-                            } else if (std.mem.eql(u8, token.value, "undef")) {
+                                switch (value.type) {
+                                    .identifier, .hexnum, .decnum, .registerName => {
+                                        _ = try this.constants.put(name, value);
+                                    },
+                                    else => return error.UnexpectedToken,
+                                }
+                            } else if (std.mem.eql(u8, token.value, ".undef")) {
                                 const name = try this.readExpectedToken(.identifier);
-                            } else if (std.mem.eql(u8, token.value, "d8")) {
+
+                                _ = this.constants.remove(name);
+                            } else if (std.mem.eql(u8, token.value, ".d8")) {
                                 this.state = .readsD8;
-                            } else if (std.mem.eql(u8, token.value, "d16")) {
+                            } else if (std.mem.eql(u8, token.value, ".d16")) {
                                 this.state = .readsD16;
-                            } else if (std.mem.eql(u8, token.value, "d32") or std.mem.eql(u8, token.value, "dw")) {
+                            } else if (std.mem.eql(u8, token.value, ".d32") or std.mem.eql(u8, token.value, ".dw")) {
                                 this.state = .readsD32;
-                            } else if (std.mem.eql(u8, token.value, "align")) {
+                            } else if (std.mem.eql(u8, token.value, ".align")) {
                                 const al = try this.readNumberToken();
                                 return Element{
                                     .alignment = al,
@@ -489,7 +529,6 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
     defer patchlist.deinit();
 
     while (try parser.readNext()) |label_or_instruction| {
-        std.debug.warn("semantic element: {}\n", label_or_instruction);
         switch (label_or_instruction) {
             .label => |lbl| {
                 std.debug.warn("{}: # 0x{X:0>8}\n", lbl, writer.offset);
@@ -503,19 +542,39 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
                 }
             },
             .instruction => |instr| {
+                std.debug.warn("\t{}", instr.mnemonic);
+
+                var i: usize = 0;
+                while (i < instr.operandCount) : (i += 1) {
+                    if (i > 0) {
+                        std.debug.warn(", ");
+                    } else {
+                        std.debug.warn(" ");
+                    }
+                    instr.operands[i].print();
+                }
+
+                // std.debug.warn("instruction element: {}\n", instr);
+                std.debug.warn("\n");
+
                 // TODO:
+
                 try writer.write(u8(0xAA));
             },
             .data8 => |data| {
+                std.debug.warn(".d8 0x{X:0>2}\n", data);
                 try writer.write(data);
             },
             .data16 => |data| {
+                std.debug.warn(".d16 0x{X:0>4}\n", data);
                 try writer.write(data);
             },
             .data32 => |data| {
+                std.debug.warn(".d32 0x{X:0>8}\n", data);
                 try writer.write(data);
             },
             .alignment => |al| {
+                std.debug.warn(".align {}\n", al);
                 std.debug.assert((al & (al - 1)) == 0);
                 writer.offset = (writer.offset + al - 1) & ~(al - 1);
             },
@@ -523,9 +582,17 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
     }
 
     // debug output:
-    var iter = globalLabels.iterator();
-    while (iter.next()) |lbl| {
-        std.debug.warn("label: {}\n", lbl);
+    {
+        var iter = globalLabels.iterator();
+        while (iter.next()) |lbl| {
+            std.debug.warn("label: {}\n", lbl);
+        }
+    }
+    {
+        var iter = parser.constants.iterator();
+        while (iter.next()) |lbl| {
+            std.debug.warn("const: {}\n", lbl);
+        }
     }
 }
 

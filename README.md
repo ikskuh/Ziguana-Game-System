@@ -46,16 +46,16 @@ running:
 	.dw 0
 ```
 
-## Syntax and Semantics
+### Syntax and Semantics
 
 Register Names (32 bit):
 - `r0` … `r15`
 
-### Flags
+#### Flags
 - `C`: Carry, set when an instruction overflows
 - `Z`: Zero, set when an instruction results in zero.
 
-### Operand Format
+#### Operand Format
 
 - `r0` … `r15` are register names
 - decimal or hexadecimal numbers are used as literals
@@ -63,7 +63,7 @@ Register Names (32 bit):
 - `[…]` is an indirection and stores/loads from the memory address `…` instead of using `…` as an immediate value. `…` can be any other non-indirect operand.
 - `[…+n]` is an indirection similar to `[…]`, but it will offset the address in … by n bytes.
 
-### Instructions:
+#### Instructions:
 
 Note: `*x` means that `x` may be modified.
 
@@ -71,6 +71,7 @@ Note: `*x` means that `x` may be modified.
 |-----------------|-------------|
 | `mov *dst, src` | copies src to dst |
 | `add *dst, val` | adds val to dst |
+| `sub *dst, val` | subtracts val from dst |
 | `cmp a, b`      | compares a to b and stores result in | flags. Z is set when a==b, C is set when a < b |
 | `jmp dst`       | jumps execution to address dst |
 | `jnz dst`       | jumps execution to address dst when Z is set |
@@ -83,7 +84,7 @@ Note: `*x` means that `x` may be modified.
 | `setpix x,y,c`  | sets pixel (x,y) to color c |
 | `getpix *c,x,y` | gets pixel (x,y) into c |
 
-### Directives
+#### Directives
 
 | Syntax | Description |
 |--------|-------------|
@@ -91,7 +92,7 @@ Note: `*x` means that `x` may be modified.
 | `.dw a,…`          | stores literal 32bit word a, … at the current position |
 | `.align v`         | aligns the current position with v bytes |
 
-### Labels
+#### Labels
 
 - `name:` defines a global label "name"
 - `.name:` defines a local label "name" that can only be used/references between to global labels.
