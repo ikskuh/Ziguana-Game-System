@@ -982,12 +982,15 @@ const InstructionCore = struct {
         try dst.saveFromEAX(writer);
     }
     fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("add {}, {}\n", dst, src);
     }
     fn sub(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("sub {}, {}\n", dst, src);
     }
     fn cmp(writer: *Writer, dst: InstrInput, src: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("cmp {}, {}\n", dst, src);
     }
     fn jmp(writer: *Writer, pos: InstrInput) WriterError!void {
@@ -1027,33 +1030,43 @@ const InstructionCore = struct {
         }
     }
     fn jnz(writer: *Writer, pos: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("jnz {}\n", pos);
     }
     fn jiz(writer: *Writer, pos: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("jiz {}\n", pos);
     }
     fn jlz(writer: *Writer, pos: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("jlz {}\n", pos);
     }
     fn jgz(writer: *Writer, pos: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("jgz {}\n", pos);
     }
     fn shl(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("shl {}, {}\n", dst, src);
     }
     fn shr(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("shr {}, {}\n", dst, src);
     }
     fn gettime(writer: *Writer, dst: InstrOutput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("gettime {}\n", dst);
     }
     fn getkey(writer: *Writer, dst: InstrOutput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("getkey {}\n", dst);
     }
     fn setpix(writer: *Writer, x: InstrInput, y: InstrInput, c: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("setpix {}, {}, {}\n", x, y, c);
     }
     fn getpix(writer: *Writer, col: InstrOutput, x: InstrInput, y: InstrInput) WriterError!void {
+        try writer.write(u8(0x90)); // emit NOP for debugging reference
         std.debug.warn("getpix {}, {}, {}\n", col, x, y);
     }
 };
