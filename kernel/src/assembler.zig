@@ -505,76 +505,184 @@ const Parser = struct {
     };
 };
 
-pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8) !void {
+fn convertOperandToArg(comptime T: type, operand: Operand, labels: Labels) error{InvalidOperand}!T {
+    // BIG TODO:
+    // Implement offsetting here!
+    //
+    switch (operand) {
+        .direct => |opdir| switch (opdir) {
+            .register => |reg| return T{
+                // label addresses are hardcoded on page 0, address 0x00 … 0x40
+                .indirection = Indirection{
+                    .address = ImmediateOrLabel.initImm(4 * u32(reg)),
+                    .offset = 0,
+                },
+            },
+            .label => |lbl| if (comptime T == InstrInput) {
+                return T{
+                    .immediate = ImmediateOrLabel.initLbl(labels.get(lbl)),
+                };
+            } else {
+                return error.InvalidOperand;
+            },
+            .immediate => |imm| if (comptime T == InstrInput) {
+                return T{
+                    .immediate = ImmediateOrLabel.initImm(imm),
+                };
+            } else {
+                return error.InvalidOperand;
+            },
+        },
+        .indirect => |indirect| {
+            switch (indirect.source) {
+                .register => |reg| return T{
+                    // label addresses are hardcoded on page 0, address 0x00 … 0x40
+                    .doubleIndirection = Indirection{
+                        .address = ImmediateOrLabel.initImm(4 * u32(reg)),
+                        .offset = indirect.offset orelse 0,
+                    },
+                },
+                .label => |lbl| return T{
+                    .indirection = Indirection{
+                        .address = ImmediateOrLabel.initLbl(labels.get(lbl)),
+                        .offset = indirect.offset orelse 0,
+                    },
+                },
+                .immediate => |imm| return T{
+                    .indirection = Indirection{
+                        .address = ImmediateOrLabel.initImm(imm),
+                        .offset = indirect.offset orelse 0,
+                    },
+                },
+            }
+        },
+    }
+}
+
+const Labels = struct {
+    local: std.StringHashMap(u32),
+    global: std.StringHashMap(u32),
+
+    fn get(this: Labels, name: []const u8) LabelRef {
+        var ref = if (name[0] == '.') this.local.get(name) else this.global.get(name);
+        if (ref) |lbl| {
+            return LabelRef{
+                .label = lbl.key,
+                .offset = lbl.value,
+            };
+        } else {
+            return LabelRef{
+                .label = name,
+                .offset = null,
+            };
+        }
+    }
+};
+
+pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8, offset: ?u32) !void {
     var arena = std.heap.ArenaAllocator.init(allocator);
     defer arena.deinit();
 
     var parser = Parser.init(&arena.allocator, source);
     defer parser.deinit();
-
-    var globalLabels = std.StringHashMap(u32).init(&arena.allocator);
-    defer globalLabels.deinit();
-
-    var localLabels = std.StringHashMap(u32).init(&arena.allocator);
-    defer localLabels.deinit();
-
-    var writer = Writer.init(target);
-
-    const Patch = struct {
-        offset: u32,
-        value: u32,
+    var labels = Labels{
+        .local = std.StringHashMap(u32).init(&arena.allocator),
+        .global = std.StringHashMap(u32).init(&arena.allocator),
     };
+    defer labels.local.deinit();
+    defer labels.global.deinit();
 
-    var patchlist = std.ArrayList(Patch).init(&arena.allocator);
-    defer patchlist.deinit();
+    var writer = Writer.init(allocator, target);
+    writer.deinit();
+
+    // used for offsetting labels to "link" the code to the
+    // right position
+    const absoffset = offset orelse @intCast(u32, @ptrToInt(target.ptr));
 
     while (try parser.readNext()) |label_or_instruction| {
         switch (label_or_instruction) {
             .label => |lbl| {
-                std.debug.warn("{}: # 0x{X:0>8}\n", lbl, writer.offset);
+                // std.debug.warn("{}: # 0x{X:0>8}\n", lbl, writer.offset);
                 if (lbl[0] == '.') {
                     // is local
-                    _ = try localLabels.put(lbl, writer.offset);
+                    _ = try labels.local.put(lbl, absoffset + writer.offset);
                 } else {
                     // erase all local labels as soon as we encounter a global label
-                    localLabels.clear();
-                    _ = try globalLabels.put(lbl, writer.offset);
+                    labels.local.clear();
+                    _ = try labels.global.put(lbl, absoffset + writer.offset);
                 }
             },
             .instruction => |instr| {
-                std.debug.warn("\t{}", instr.mnemonic);
+                // std.debug.warn("\t{}", instr.mnemonic);
+                // var i: usize = 0;
+                // while (i < instr.operandCount) : (i += 1) {
+                //     if (i > 0) {
+                //         std.debug.warn(", ");
+                //     } else {
+                //         std.debug.warn(" ");
+                //     }
+                //     instr.operands[i].print();
+                // }
+                // std.debug.warn("\n");
+                var foundAny = false;
+                inline for (@typeInfo(InstructionCore).Struct.decls) |executor| {
+                    comptime std.debug.assert(executor.data == .Fn);
+                    if (std.mem.eql(u8, executor.name, instr.mnemonic)) {
+                        const FunType = @typeInfo(executor.data.Fn.fn_type).Fn;
 
-                var i: usize = 0;
-                while (i < instr.operandCount) : (i += 1) {
-                    if (i > 0) {
-                        std.debug.warn(", ");
-                    } else {
-                        std.debug.warn(" ");
+                        if (FunType.args.len != instr.operandCount + 1) {
+                            std.debug.warn("operand count mismatch for {}. Expected {}, got {}!\n", instr.mnemonic, FunType.args.len - 1, instr.operandCount);
+                            return error.OperandMismatch;
+                        }
+
+                        switch (FunType.args.len) {
+                            1 => {
+                                try @field(InstructionCore, executor.name)(writer);
+                            },
+                            2 => {
+                                var arg0 = try convertOperandToArg(FunType.args[1].arg_type.?, instr.operands[0], labels);
+                                try @field(InstructionCore, executor.name)(&writer, arg0);
+                            },
+                            3 => {
+                                var arg0 = try convertOperandToArg(FunType.args[1].arg_type.?, instr.operands[0], labels);
+                                var arg1 = try convertOperandToArg(FunType.args[2].arg_type.?, instr.operands[1], labels);
+                                try @field(InstructionCore, executor.name)(&writer, arg0, arg1);
+                            },
+                            4 => {
+                                var arg0 = try convertOperandToArg(FunType.args[1].arg_type.?, instr.operands[0], labels);
+                                var arg1 = try convertOperandToArg(FunType.args[2].arg_type.?, instr.operands[1], labels);
+                                var arg2 = try convertOperandToArg(FunType.args[3].arg_type.?, instr.operands[2], labels);
+                                try @field(InstructionCore, executor.name)(&writer, arg0, arg1, arg2);
+                            },
+
+                            else => @panic("unsupported operand count!"),
+                        }
+
+                        // std.debug.warn("found instruction: {}\n", instr.mnemonic);
+                        foundAny = true;
+                        break;
                     }
-                    instr.operands[i].print();
                 }
 
-                // std.debug.warn("instruction element: {}\n", instr);
-                std.debug.warn("\n");
-
-                // TODO:
-
-                try writer.write(u8(0xAA));
+                if (!foundAny) {
+                    std.debug.warn("unknown instruction: {}\n", instr.mnemonic);
+                    return error.UnknownMnemonic;
+                }
             },
             .data8 => |data| {
-                std.debug.warn(".d8 0x{X:0>2}\n", data);
+                // std.debug.warn(".d8 0x{X:0>2}\n", data);
                 try writer.write(data);
             },
             .data16 => |data| {
-                std.debug.warn(".d16 0x{X:0>4}\n", data);
+                // std.debug.warn(".d16 0x{X:0>4}\n", data);
                 try writer.write(data);
             },
             .data32 => |data| {
-                std.debug.warn(".d32 0x{X:0>8}\n", data);
+                // std.debug.warn(".d32 0x{X:0>8}\n", data);
                 try writer.write(data);
             },
             .alignment => |al| {
-                std.debug.warn(".align {}\n", al);
+                // std.debug.warn(".align {}\n", al);
                 std.debug.assert((al & (al - 1)) == 0);
                 writer.offset = (writer.offset + al - 1) & ~(al - 1);
             },
@@ -583,46 +691,255 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
 
     // debug output:
     {
-        var iter = globalLabels.iterator();
+        std.debug.warn("Labels:\n");
+        var iter = labels.global.iterator();
         while (iter.next()) |lbl| {
-            std.debug.warn("label: {}\n", lbl);
+            std.debug.warn("\t{}\n", lbl);
         }
     }
     {
+        std.debug.warn("Constants:\n");
         var iter = parser.constants.iterator();
         while (iter.next()) |lbl| {
-            std.debug.warn("const: {}\n", lbl);
+            std.debug.warn("\t{}\n", lbl);
+        }
+    }
+    {
+        std.debug.warn("Patches:\n");
+        var iter = writer.patchlist.iterator();
+        while (iter.next()) |lbl| {
+            std.debug.warn("\t{}\n", lbl);
         }
     }
 }
+
+const LabelRef = struct {
+    label: []const u8,
+    offset: ?u32,
+};
+
+const ImmediateOrLabel = union(enum) {
+    immediate: u32,
+    label: LabelRef,
+
+    fn initImm(val: u32) ImmediateOrLabel {
+        return ImmediateOrLabel{
+            .immediate = val,
+        };
+    }
+
+    fn initLbl(val: LabelRef) ImmediateOrLabel {
+        return ImmediateOrLabel{
+            .label = val,
+        };
+    }
+
+    pub fn format(value: ImmediateOrLabel, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+        switch (value) {
+            .immediate => |imm| try std.fmt.format(context, Errors, output, "0x{X:0>8}", imm),
+            .label => |ref| {
+                if (ref.offset) |off| {
+                    try std.fmt.format(context, Errors, output, "0x{X:0>8}", off);
+                } else {
+                    try std.fmt.format(context, Errors, output, "{}", ref.label);
+                }
+            },
+        }
+    }
+};
+
+const WriterError = error{
+    NotEnoughSpace,
+    OutOfMemory,
+};
 
 /// simple wrapper around a slice that allows
 /// sequential writing to that slice
 const Writer = struct {
     target: []u8,
     offset: u32,
+    patchlist: std.ArrayList(Patch),
 
-    fn init(target: []u8) Writer {
+    const Patch = struct {
+        offset: u32,
+        label: []const u8,
+    };
+
+    fn init(allocator: *std.mem.Allocator, target: []u8) Writer {
         return Writer{
             .target = target,
             .offset = 0,
+            .patchlist = std.ArrayList(Patch).init(allocator),
         };
     }
 
-    fn ensureSpace(this: *Writer, size: usize) !void {
+    fn deinit(this: Writer) void {
+        this.patchlist.deinit();
+    }
+
+    fn ensureSpace(this: *Writer, size: usize) WriterError!void {
         if (this.offset + size > this.target.len)
             return error.NotEnoughSpace;
     }
 
-    fn write(this: *Writer, value: var) !void {
+    fn write(this: *Writer, value: var) WriterError!void {
         const T = @typeOf(value);
-        try this.ensureSpace(@sizeOf(T));
         switch (T) {
-            u8, u16, u32, u64 => {
+            u8, u16, u32, u64, i8, i16, i32, i64 => {
+                try this.ensureSpace(@sizeOf(T));
                 std.mem.copy(u8, this.target[this.offset .. this.offset + @sizeOf(T)], std.mem.asBytes(&value));
                 this.offset += @sizeOf(T);
             },
+            LabelRef => {
+                try this.ensureSpace(4);
+                if (value.offset) |offset| {
+                    std.mem.copy(u8, this.target[this.offset .. this.offset + 4], std.mem.asBytes(&offset));
+                } else {
+                    try this.patchlist.append(Patch{
+                        .label = value.label,
+                        .offset = this.offset,
+                    });
+                }
+                this.offset += 4;
+            },
+            ImmediateOrLabel => switch (value) {
+                .immediate => |v| try this.write(v),
+                .label => |v| try this.write(v),
+            },
             else => @compileError(@typeName(@typeOf(value)) ++ " is not supported by writer!"),
         }
+    }
+};
+
+const Indirection = struct {
+    address: ImmediateOrLabel,
+    offset: i32,
+};
+
+const InstrOutput = union(enum) {
+    indirection: Indirection,
+    doubleIndirection: Indirection,
+
+    pub fn format(value: InstrOutput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+        switch (value) {
+            .indirection => |ind| if (ind.offset == 0)
+                try std.fmt.format(context, Errors, output, "*[{}]", ind.address)
+            else
+                try std.fmt.format(context, Errors, output, "*[{}+{}]", ind.address, ind.offset),
+            .doubleIndirection => |dind| if (dind.offset == 0)
+                try std.fmt.format(context, Errors, output, "*[[{}]]", dind.address)
+            else
+                try std.fmt.format(context, Errors, output, "*[[{}]+{}]", dind.address, dind.offset),
+        }
+    }
+};
+
+const InstrInput = union(enum) {
+    immediate: ImmediateOrLabel,
+    indirection: Indirection,
+    doubleIndirection: Indirection,
+
+    pub fn format(value: InstrInput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+        switch (value) {
+            .immediate => |imm| try std.fmt.format(context, Errors, output, "{}", imm),
+            .indirection => |ind| if (ind.offset == 0)
+                try std.fmt.format(context, Errors, output, "[{}]", ind.address)
+            else
+                try std.fmt.format(context, Errors, output, "[{}+{}]", ind.address, ind.offset),
+            .doubleIndirection => |dind| if (dind.offset == 0)
+                try std.fmt.format(context, Errors, output, "[[{}]]", dind.address)
+            else
+                try std.fmt.format(context, Errors, output, "[[{}]+{}]", dind.address, dind.offset),
+        }
+    }
+};
+
+/// Contains emitter functions for every possible instructions.
+const InstructionCore = struct {
+    fn mov(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        std.debug.warn("mov {}, {}\n", dst, src);
+    }
+    fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        std.debug.warn("add {}, {}\n", dst, src);
+    }
+    fn sub(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        std.debug.warn("sub {}, {}\n", dst, src);
+    }
+    fn cmp(writer: *Writer, dst: InstrInput, src: InstrInput) WriterError!void {
+        std.debug.warn("cmp {}, {}\n", dst, src);
+    }
+    fn jmp(writer: *Writer, pos: InstrInput) WriterError!void {
+        switch (pos) {
+            .immediate => |imm| {
+                // FF2544332211      jmp [dword 0x11223344]
+                try writer.write(u8(0xFF));
+                try writer.write(u8(0x25));
+                try writer.write(imm);
+            },
+            .indirection => |ind| {
+                if (ind.offset != 0) {
+                    // FF2544332211      jmp [dword 0x11223344]
+                    try writer.write(u8(0xFF));
+                    try writer.write(u8(0x25));
+                    try writer.write(ind.address);
+                } else {
+                    // B844332211        mov eax,0x11223344
+                    try writer.write(u8(0xB4));
+                    try writer.write(ind.address);
+
+                    // FFA044332211      jmp [eax+0x11223344]
+                    try writer.write(u8(0xFF));
+                    try writer.write(u8(0xA0));
+                    try writer.write(ind.offset);
+                }
+            },
+            // actually only required when someone does `[reg]`
+            .doubleIndirection => |ind| {
+                // A144332211        mov eax,[0x11223344]
+                try writer.write(u8(0xA1));
+                try writer.write(ind.address);
+
+                if (ind.offset != 0) {
+                    // FFA044332211      jmp [eax+0x11223344]
+                    try writer.write(u8(0xFF));
+                    try writer.write(u8(0xA0));
+                    try writer.write(ind.offset);
+                } else {
+                    // FF20              jmp [eax]
+                    try writer.write(u8(0xFF));
+                    try writer.write(u8(0x20));
+                }
+            },
+        }
+    }
+    fn jnz(writer: *Writer, pos: InstrInput) WriterError!void {
+        std.debug.warn("jnz {}\n", pos);
+    }
+    fn jiz(writer: *Writer, pos: InstrInput) WriterError!void {
+        std.debug.warn("jiz {}\n", pos);
+    }
+    fn jlz(writer: *Writer, pos: InstrInput) WriterError!void {
+        std.debug.warn("jlz {}\n", pos);
+    }
+    fn jgz(writer: *Writer, pos: InstrInput) WriterError!void {
+        std.debug.warn("jgz {}\n", pos);
+    }
+    fn shl(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        std.debug.warn("shl {}, {}\n", dst, src);
+    }
+    fn shr(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        std.debug.warn("shr {}, {}\n", dst, src);
+    }
+    fn gettime(writer: *Writer, dst: InstrOutput) WriterError!void {
+        std.debug.warn("gettime {}\n", dst);
+    }
+    fn getkey(writer: *Writer, dst: InstrOutput) WriterError!void {
+        std.debug.warn("getkey {}\n", dst);
+    }
+    fn setpix(writer: *Writer, x: InstrInput, y: InstrInput, c: InstrInput) WriterError!void {
+        std.debug.warn("setpix {}, {}, {}\n", x, y, c);
+    }
+    fn getpix(writer: *Writer, col: InstrOutput, x: InstrInput, y: InstrInput) WriterError!void {
+        std.debug.warn("getpix {}, {}, {}\n", col, x, y);
     }
 };

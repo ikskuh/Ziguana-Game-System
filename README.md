@@ -88,7 +88,8 @@ Note: `*x` means that `x` may be modified.
 
 | Syntax | Description |
 |--------|-------------|
-| `.def NAME, value` | creates new constant NAME with value value. |
+| `.def NAME, value` | creates new constant `NAME` that will be replaced with `value` from this line on. `value` can be any number, identifier or register name. |
+| `.undef NAME`      | removes a previously defined constant. |
 | `.dw a,…`          | stores literal 32bit word a, … at the current position |
 | `.align v`         | aligns the current position with v bytes |
 
