@@ -339,6 +339,11 @@ const Parser = struct {
                                 this.state = .readsD16;
                             } else if (std.mem.eql(u8, token.value, "d32") or std.mem.eql(u8, token.value, "dw")) {
                                 this.state = .readsD32;
+                            } else if (std.mem.eql(u8, token.value, "align")) {
+                                const al = try this.readNumberToken();
+                                return Element{
+                                    .alignment = al,
+                                };
                             } else {
                                 return error.UnknownDirective;
                             }
@@ -498,6 +503,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
             },
             .instruction => |instr| {
                 // TODO:
+                try writer.write(u8(0xAA));
             },
             .data8 => |data| {
                 try writer.write(data);
@@ -510,9 +516,15 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
             },
             .alignment => |al| {
                 std.debug.assert((al & (al - 1)) == 0);
-                writer.offset = (writer.offset + al - 1) & (al - 1);
+                writer.offset = (writer.offset + al - 1) & ~(al - 1);
             },
         }
+    }
+
+    // debug output:
+    var iter = globalLabels.iterator();
+    while (iter.next()) |lbl| {
+        std.debug.warn("label: {}\n", lbl);
     }
 }
 
