@@ -492,6 +492,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8)
         std.debug.warn("semantic element: {}\n", label_or_instruction);
         switch (label_or_instruction) {
             .label => |lbl| {
+                std.debug.warn("{}: # 0x{X:0>8}\n", lbl, writer.offset);
                 if (lbl[0] == '.') {
                     // is local
                     _ = try localLabels.put(lbl, writer.offset);

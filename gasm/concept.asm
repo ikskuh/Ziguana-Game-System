@@ -2,44 +2,6 @@
 # Control player with arrow keys
 # Don't hit your own trace
 
-# Registers (32 bit):
-# 	r0...r15
-#
-# Flags:
-# 	C: Carry
-#	Z: Zero
-#
-# Operand Format:
-#	r0 … r15 are register names and reserved
-#	decimal or hexadecimal numbers are used as literals
-#	label names can be used instead of literals for the address of the label
-#	[…] is an indirection and stores/loads from the memory address … instead of using … as an immediate value
-#	[…+n] is an indirection similar to […], but it will offset the address in … by n bytes.
-#
-# Note: *x means that x may be modified
-# Instructions:
-#	mov *dst, src    | copies src to dst
-#	add *dst, val    | adds val to dst
-#	cmp a, b         | compares a to b and stores result in flags. Z is set when a==b, C is set when a < b
-#	jmp dst          | jumps execution to address dst
-#	jnz	dst          | jumps execution to address dst when Z is set
-#	jlz dst          | jumps execution to address dst when C is set
-#   jgz dst          | jumps execution to address dst when both Z  and C are not set
-#   jiz dst          | jumps execution to address dst when Z is not set
-#	shl *dst, cnt    | shifts dst cnt bits to the left
-#	shr *dst, cnt    | shifts dst cnt bits to the right
-#	gettime *dst     | stores the current system time in ms into dst
-#	setpix x,y,c     | sets pixel (x,y) to color c
-#	getpix *c,x,y    | gets pixel (x,y) into c
-#
-# Directives:
-#	.def NAME, value | creates new constant NAME with value value.
-#	.dw a,…          | stores literal 32bit word a, … at the current position
-#	.align v         | aligns the current position with v bytes
-#
-# Labels:
-#	name:            | global label "name"
-#	'loc:            | local label "loc". can only be used/references between to global labels.
 
 # Workspace:
 #	jsr label
@@ -136,6 +98,8 @@ gameLoop:
 loseGame:
 	# sad...
 	jmp loseGame
+
+.align 4
 
 playerX:
 	.dw 320
