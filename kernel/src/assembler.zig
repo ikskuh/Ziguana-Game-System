@@ -599,6 +599,8 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
     // right position
     const absoffset = offset orelse @intCast(u32, @ptrToInt(target.ptr));
 
+    std.debug.warn("offset = {} ({})\n", offset, absoffset);
+
     while (try parser.readNext()) |label_or_instruction| {
         switch (label_or_instruction) {
             .label => |lbl| {
@@ -799,7 +801,7 @@ const Writer = struct {
         var iter = patchlist.iterator();
         while (iter.next()) |patch| {
             const lbl = labels.get(patch.label);
-            std.debug.warn("Patching {} to {}\n", patch, lbl);
+            // std.debug.warn("Patching {} to {}\n", patch, lbl);
             if (lbl.offset) |local_offset| {
                 const off = local_offset + @bitCast(u32, patch.offset_to_value);
                 std.mem.copy(u8, this.target[patch.offset_to_binary .. patch.offset_to_binary + 4], std.mem.asBytes(&off));
@@ -1017,6 +1019,8 @@ const InstrInput = union(enum) {
     }
 };
 
+const API = @import("root").assembler_api;
+
 /// Contains emitter functions for every possible instructions.
 const InstructionCore = struct {
     /// moves src to dst.
@@ -1125,14 +1129,10 @@ const InstructionCore = struct {
         writer.target[offset] = @intCast(u8, end - start);
     }
     fn jiz(writer: *Writer, pos: InstrInput) WriterError!void {
-
-        // make inverse jump mechanic:
-        // jump over the unconditional jump as
-        // conditional jumps are always short jumps and cannot
-        // use indirection
+        // description: see jnz
 
         // 7504              jnz +4
-        try writer.write(u8(0x74)); // emit NOP for debugging reference
+        try writer.write(u8(0x74));
         const offset = try writer.emit(1);
 
         const start = writer.offset;
@@ -1142,12 +1142,30 @@ const InstructionCore = struct {
         writer.target[offset] = @intCast(u8, end - start);
     }
     fn jlz(writer: *Writer, pos: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("jlz {}\n", pos);
+        // description: see jnz
+
+        // 7D06              jnl 0x4d # jump not less
+        try writer.write(u8(0x7D));
+        const offset = try writer.emit(1);
+
+        const start = writer.offset;
+        try jmp(writer, pos);
+        const end = writer.offset;
+
+        writer.target[offset] = @intCast(u8, end - start);
     }
     fn jgz(writer: *Writer, pos: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("jgz {}\n", pos);
+        // description: see jnz
+
+        // 7E04              jng 0x4d # jump not greater
+        try writer.write(u8(0x7E));
+        const offset = try writer.emit(1);
+
+        const start = writer.offset;
+        try jmp(writer, pos);
+        const end = writer.offset;
+
+        writer.target[offset] = @intCast(u8, end - start);
     }
     fn shl(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try writer.write(u8(0x90)); // emit NOP for debugging reference
@@ -1158,19 +1176,83 @@ const InstructionCore = struct {
         std.debug.warn("shr {}, {}\n", dst, src);
     }
     fn gettime(writer: *Writer, dst: InstrOutput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("gettime {}\n", dst);
+        // extern fn () u32
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.gettime)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+
+        try dst.saveFromEAX(writer);
     }
     fn getkey(writer: *Writer, dst: InstrOutput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("getkey {}\n", dst);
+        // extern fn () u32
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.gettime)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+
+        try dst.saveFromEAX(writer);
     }
-    fn setpix(writer: *Writer, x: InstrInput, y: InstrInput, c: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("setpix {}, {}, {}\n", x, y, c);
+    fn setpix(writer: *Writer, x: InstrInput, y: InstrInput, col: InstrInput) WriterError!void {
+        // extern fn (x: u32, y: u32, col: u32) void
+        try col.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        try y.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        try x.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.setpix)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+
+        // 83C444            add esp,byte +0x44
+        // pop*3
+        try writer.write(u8(0x83));
+        try writer.write(u8(0xC4));
+        try writer.write(u8(0x0C)); // pop 3 args
     }
+
     fn getpix(writer: *Writer, col: InstrOutput, x: InstrInput, y: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("getpix {}, {}, {}\n", col, x, y);
+        // extern fn (x: u32, y: u32) u32
+        try y.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        try x.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.setpix)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+
+        // 83C455            add esp,byte +0x55
+        try writer.write(u8(0x83));
+        try writer.write(u8(0xC4));
+        try writer.write(u8(0x08)); // pop 2 args
+
+        try col.saveFromEAX(writer);
     }
 };

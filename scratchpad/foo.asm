@@ -31,7 +31,24 @@ init:
 
 	jz next
 	jnz next
+	jge next
+	jle next
 	jmp eax
 	jmp eax
+
+	nop
+
+	push eax
+	mov eax, 0x11223344
+	call eax
+	pop eax
+
+	nop
+
+	push 0x11223344
+	push eax
+    call next
+    add esp,0x55
+
 next:
 	nop

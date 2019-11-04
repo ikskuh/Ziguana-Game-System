@@ -29,6 +29,6 @@ zig-cache/bin/assembler:
 
 assembler-test: ./zig-cache/bin/assembler
 	./zig-cache/bin/assembler
-	ndisasm -b32 -o 0x200000 /tmp/develop.gasm | head -n100
+	ndisasm -b32 -o 0x200000 /tmp/develop.gasm | head -n200
 	
 .PHONY: zig-cache/bin/kernel zig-cache/bin/assembler assembler-test

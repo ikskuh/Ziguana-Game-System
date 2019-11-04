@@ -57,6 +57,7 @@ gameLoop:
 	add [playerY], r2
 
 	# Test if we hit something
+_readPixel:
 	getpix r0, [playerX], [playerY]
 	cmp r0, BGCOLOR
 	jnz loseGame
