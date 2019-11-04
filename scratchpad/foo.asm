@@ -8,6 +8,13 @@ init:
 	mov ebx, [0x11223344]
 	
 	nop
+	
+	mov eax, ebx
+	add eax, ebx
+	sub eax, ebx
+	cmp eax, ebx
+
+	nop
 
 	mov [0x11223344], eax
 	mov [ebx], eax
@@ -19,4 +26,12 @@ init:
 	jmp [eax]
 	jmp [0x11223344]
 	jmp [eax+0x11223344]
-	jmp dword 0x11223344
+
+	nop
+
+	jz next
+	jnz next
+	jmp eax
+	jmp eax
+next:
+	nop

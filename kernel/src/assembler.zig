@@ -607,6 +607,10 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                     // is local
                     _ = try labels.local.put(lbl, absoffset + writer.offset);
                 } else {
+                    // we need to patch all previous code here as
+                    // we will lose all local label references in this step.
+                    try writer.applyPatches(labels, .onlyLocals);
+
                     // erase all local labels as soon as we encounter a global label
                     labels.local.clear();
                     _ = try labels.global.put(lbl, absoffset + writer.offset);
@@ -705,14 +709,14 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
         }
     }
     {
-        std.debug.warn("Patches:\n");
-        var iter = writer.patchlist.iterator();
+        std.debug.warn("Global Patches:\n");
+        var iter = writer.globalPatchlist.iterator();
         while (iter.next()) |lbl| {
             std.debug.warn("\t{}\n", lbl);
         }
     }
 
-    try writer.applyPatches(labels);
+    try writer.applyPatches(labels, .all);
 }
 
 const LabelRef = struct {
@@ -760,7 +764,14 @@ const WriterError = error{
 const Writer = struct {
     target: []u8,
     offset: u32,
-    patchlist: std.ArrayList(Patch),
+
+    localPatchlist: std.ArrayList(Patch),
+    globalPatchlist: std.ArrayList(Patch),
+
+    const PatchBatch = enum {
+        all,
+        onlyLocals,
+    };
 
     const Patch = struct {
         offset_to_binary: u32,
@@ -772,18 +783,20 @@ const Writer = struct {
         return Writer{
             .target = target,
             .offset = 0,
-            .patchlist = std.ArrayList(Patch).init(allocator),
+            .localPatchlist = std.ArrayList(Patch).init(allocator),
+            .globalPatchlist = std.ArrayList(Patch).init(allocator),
         };
     }
 
     fn deinit(this: Writer) void {
-        this.patchlist.deinit();
+        this.localPatchlist.deinit();
+        this.globalPatchlist.deinit();
     }
 
-    fn applyPatches(this: *Writer, labels: Labels) !void {
+    fn applyPatchesTo(this: *Writer, labels: Labels, patchlist: *std.ArrayList(Patch)) !void {
 
         // on deinit, we will flush our patchlist and apply all patches:
-        var iter = this.patchlist.iterator();
+        var iter = patchlist.iterator();
         while (iter.next()) |patch| {
             const lbl = labels.get(patch.label);
             std.debug.warn("Patching {} to {}\n", patch, lbl);
@@ -795,7 +808,14 @@ const Writer = struct {
             }
         }
 
-        this.patchlist.shrink(0);
+        patchlist.shrink(0);
+    }
+
+    fn applyPatches(this: *Writer, labels: Labels, batchMode: PatchBatch) !void {
+        if (batchMode == .all) {
+            try this.applyPatchesTo(labels, &this.globalPatchlist);
+        }
+        try this.applyPatchesTo(labels, &this.localPatchlist);
     }
 
     fn ensureSpace(this: *Writer, size: usize) WriterError!void {
@@ -803,10 +823,27 @@ const Writer = struct {
             return error.NotEnoughSpace;
     }
 
+    /// emits `count` undefined bytes to the stream.
+    /// these must be patched by hand!
+    fn emit(this: *Writer, count: u32) WriterError!usize {
+        try this.ensureSpace(count);
+        std.mem.set(u8, this.target[this.offset .. this.offset + count], 0x90);
+
+        const off = this.offset;
+        this.offset += count;
+        return off;
+    }
+
+    /// writes a value.
+    /// if the value is a LabelRef and the ref is not valid yet, it will
+    /// be added to the patchlist.
     fn write(this: *Writer, value: var) WriterError!void {
         try this.writeWithOffset(value, 0);
     }
 
+    /// writes a value with a certain offset added to it.
+    /// if the value is a LabelRef and the ref is not valid yet, it will
+    /// be added to the patchlist.
     fn writeWithOffset(this: *Writer, value: var, offset: i32) WriterError!void {
         const T = @typeOf(value);
         switch (T) {
@@ -823,11 +860,16 @@ const Writer = struct {
                     const off = local_offset + @bitCast(u32, offset);
                     std.mem.copy(u8, this.target[this.offset .. this.offset + 4], std.mem.asBytes(&off));
                 } else {
-                    try this.patchlist.append(Patch{
+                    const patch = Patch{
                         .label = value.label,
                         .offset_to_binary = this.offset,
                         .offset_to_value = offset,
-                    });
+                    };
+                    if (value.label[0] == '.') {
+                        try this.localPatchlist.append(patch);
+                    } else {
+                        try this.globalPatchlist.append(patch);
+                    }
                 }
                 this.offset += 4;
             },
@@ -977,21 +1019,57 @@ const InstrInput = union(enum) {
 
 /// Contains emitter functions for every possible instructions.
 const InstructionCore = struct {
+    /// moves src to dst.
     fn mov(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
         try dst.saveFromEAX(writer);
     }
+
+    /// adds src to dst
     fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("add {}, {}\n", dst, src);
+        try src.loadToEAX(writer);
+
+        // 89D8              mov eax,ebx
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xD8));
+
+        try dst.loadToEAX(writer);
+
+        // 01D8              add eax,ebx
+        try writer.write(u8(0x01));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
     }
+
+    // subtracts src from dst
     fn sub(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("sub {}, {}\n", dst, src);
+        try src.loadToEAX(writer);
+
+        // 89D8              mov eax,ebx
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xD8));
+
+        try dst.loadToEAX(writer);
+
+        // 29D8              sub eax,ebx
+        try writer.write(u8(0x29));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
     }
-    fn cmp(writer: *Writer, dst: InstrInput, src: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("cmp {}, {}\n", dst, src);
+    fn cmp(writer: *Writer, lhs: InstrInput, rhs: InstrInput) WriterError!void {
+        try rhs.loadToEAX(writer);
+
+        // 89D8              mov eax,ebx
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xD8));
+
+        try lhs.loadToEAX(writer);
+
+        // 39D8              cmp eax,ebx
+        try writer.write(u8(0x39));
+        try writer.write(u8(0xD8));
     }
     fn jmp(writer: *Writer, pos: InstrInput) WriterError!void {
         switch (pos) {
@@ -1030,12 +1108,38 @@ const InstructionCore = struct {
         }
     }
     fn jnz(writer: *Writer, pos: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("jnz {}\n", pos);
+
+        // make inverse jump mechanic:
+        // jump over the unconditional jump as
+        // conditional jumps are always short jumps and cannot
+        // use indirection
+
+        // 7404              jz +4
+        try writer.write(u8(0x74)); // emit NOP for debugging reference
+        const offset = try writer.emit(1);
+
+        const start = writer.offset;
+        try jmp(writer, pos);
+        const end = writer.offset;
+
+        writer.target[offset] = @intCast(u8, end - start);
     }
     fn jiz(writer: *Writer, pos: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("jiz {}\n", pos);
+
+        // make inverse jump mechanic:
+        // jump over the unconditional jump as
+        // conditional jumps are always short jumps and cannot
+        // use indirection
+
+        // 7504              jnz +4
+        try writer.write(u8(0x74)); // emit NOP for debugging reference
+        const offset = try writer.emit(1);
+
+        const start = writer.offset;
+        try jmp(writer, pos);
+        const end = writer.offset;
+
+        writer.target[offset] = @intCast(u8, end - start);
     }
     fn jlz(writer: *Writer, pos: InstrInput) WriterError!void {
         try writer.write(u8(0x90)); // emit NOP for debugging reference
