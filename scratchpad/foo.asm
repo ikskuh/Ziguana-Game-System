@@ -9,6 +9,7 @@ init:
 	
 	nop
 	
+	mov ebx, eax
 	mov eax, ebx
 	add eax, ebx
 	sub eax, ebx
@@ -49,6 +50,16 @@ init:
 	push eax
     call next
     add esp,0x55
+	
+	nop
+	
+	mul ebx
+	div ebx
+	mov eax, edx
+
+	nop
+
+	int 0x30
 
 next:
 	nop

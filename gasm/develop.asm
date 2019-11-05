@@ -17,7 +17,8 @@
 .def DOWN,  0x10050 # escaped0 scancode 80
 .def RIGHT, 0x1004D # escaped0 scancode 77
 
-init: jmp resetGame
+init:
+	jmp resetGame
 
 resetGame:
 	mov [playerX], 320
@@ -38,16 +39,20 @@ resetGame:
 	cmp r1, 480
 	jnz .loopY # jump non-zero
 
+	# Refresh screen
+	flushpix
+
 gameLoop:
 	# Store the time stamp for the next frame
 	gettime [nextFrame]
 	add [nextFrame], 16
 
 	setpix [playerX], [playerY], 1
+	flushpix
 
 	# Load dx, dy into r1, r2
 	mov r0, [playerDir]
-	shl r0, 1
+	mul r0, 8
 	add r0, dirs
 	mov r1, [r0+0]
 	mov r2, [r0+4]
@@ -57,7 +62,6 @@ gameLoop:
 	add [playerY], r2
 
 	# Test if we hit something
-_readPixel:
 	getpix r0, [playerX], [playerY]
 	cmp r0, BGCOLOR
 	jnz loseGame
@@ -65,17 +69,17 @@ _readPixel:
 	# Now test for movement
 	getkey r0 # returns last pressed key scancode and resets it to 0
 	cmp r0, UP
-	jnz .moveUp
+	jiz .moveUp
 	cmp r0, DOWN
-	jnz .moveDown
+	jiz .moveDown
 	cmp r0, LEFT
-	jnz .moveLeft
+	jiz .moveLeft
 	cmp r0, RIGHT
-	jnz .moveRight
+	jiz .moveRight
 
 .vsync:
 	gettime r0
-	cmp r0, nextFrame
+	cmp r0, [nextFrame]
 	jlz .vsync # jump less than zero 
 
 	jmp gameLoop
@@ -111,9 +115,9 @@ playerDir:
 
 dirs:
 	.dw 1, 0
-	.dw 0, 1
-	.dw 0xFFFFFFFF, 0
 	.dw 0, 0xFFFFFFFF
+	.dw 0xFFFFFFFF, 0
+	.dw 0, 1
 
 nextFrame:
 	.dw 0

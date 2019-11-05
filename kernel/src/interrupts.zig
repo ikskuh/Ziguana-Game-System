@@ -16,7 +16,33 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
         0x00...0x1F => {
             // Exception
             Terminal.setColors(.white, .magenta);
-            Terminal.println("Unhandled exception:\r\n{}", cpu);
+            Terminal.println("Unhandled exception: {}\r\n", switch (cpu.interrupt) {
+                0x00 => "Divide By Zero",
+                0x01 => "Debug",
+                0x02 => "Non Maskable Interrupt",
+                0x03 => "Breakpoint",
+                0x04 => "Overflow",
+                0x05 => "Bound Range",
+                0x06 => "Invalid Opcode",
+                0x07 => "Device Not Available",
+                0x08 => "Double Fault",
+                0x09 => "Coprocessor Segment Overrun",
+                0x0A => "Invalid TSS",
+                0x0B => "Segment not Present",
+                0x0C => "Stack Fault",
+                0x0D => "General Protection Fault",
+                0x0E => "Page Fault",
+                0x0F => "Reserved",
+                0x10 => "x87 Floating Point",
+                0x11 => "Alignment Check",
+                0x12 => "Machine Check",
+                0x13 => "SIMD Floating Point",
+                0x14...0x1D => "Reserved",
+                0x1E => "Security-sensitive event in Host",
+                0x1F => "Reserved",
+                else => "Unknown",
+            });
+            Terminal.println("{}", cpu);
             Terminal.resetColors();
 
             while (true) {
@@ -39,8 +65,18 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
             }
             io.outb(0x20, 0x20); // ACK master PIC
         },
+        0x30 => {
+            // assembler debug call
+            @import("root").debugCall(cpu);
+        },
         else => {
             Terminal.println("Unhandled interrupt:\r\n{}", cpu);
+            while (true) {
+                asm volatile (
+                    \\ cli
+                    \\ hlt
+                );
+            }
         },
     }
 
@@ -138,6 +174,13 @@ pub const CpuState = packed struct {
     eflags: u32,
     esp: u32,
     ss: u32,
+
+    pub fn format(cpu: CpuState, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+        try std.fmt.format(context, Errors, output, "  EAX={X:0>8} EBX={X:0>8} ECX={X:0>8} EDX={X:0>8}\r\n", cpu.eax, cpu.ebx, cpu.ecx, cpu.edx);
+        try std.fmt.format(context, Errors, output, "  ESI={X:0>8} EDI={X:0>8} EBP={X:0>8} EIP={X:0>8}\r\n", cpu.esi, cpu.edi, cpu.ebp, cpu.eip);
+        try std.fmt.format(context, Errors, output, "  INT={X:0>2}       ERR={X:0>8}  CS={X:0>8} FLG={X:0>8}\r\n", cpu.interrupt, cpu.errorcode, cpu.cs, cpu.eflags);
+        try std.fmt.format(context, Errors, output, "  ESP={X:0>8}  SS={X:0>8}\r\n", cpu.esp, cpu.ss);
+    }
 };
 
 const InterruptType = enum(u3) {

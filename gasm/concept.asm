@@ -47,7 +47,7 @@ gameLoop:
 
 	# Load dx, dy into r1, r2
 	mov r0, [playerDir]
-	shl r0, 1
+	mul r0, 2
 	add r0, dirs
 	mov r1, [r0+0]
 	mov r2, [r0+4]

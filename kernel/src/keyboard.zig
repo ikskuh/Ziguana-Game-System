@@ -27,9 +27,11 @@ pub const KeyEvent = struct {
     scancode: u16,
 };
 
+var foo = u32(0);
 var lastKeyPress: ?KeyEvent = null;
 
 pub fn getKey() ?KeyEvent {
+    _ = @atomicLoad(u32, &foo, .SeqCst);
     var copy = lastKeyPress;
     lastKeyPress = null;
     return copy;

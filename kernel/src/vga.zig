@@ -117,6 +117,10 @@ pub fn setPixel(x: usize, y: usize, c: u4) void {
     backbuffer[y][x] = c;
 }
 
+pub fn getPixel(x: usize, y: usize) u4 {
+    return backbuffer[y][x];
+}
+
 pub fn swapBuffers() void {
     const bytes_per_line = 640 / 8;
 

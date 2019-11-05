@@ -16,31 +16,31 @@ const Operand = union(enum) {
         label: []const u8,
         immediate: u32,
 
-        fn print(this: Direct) void {
-            switch (this) {
-                .register => |r| std.debug.warn("r{}", r),
-                .label => |r| std.debug.warn("{}", r),
-                .immediate => |r| std.debug.warn("{}", r),
-            }
-        }
+        // fn print(this: Direct) void {
+        //     switch (this) {
+        //         .register => |r| std.debug.warn("r{}", r),
+        //         .label => |r| std.debug.warn("{}", r),
+        //         .immediate => |r| std.debug.warn("{}", r),
+        //     }
+        // }
     };
 
     const Indirect = struct {
         source: Direct,
         offset: ?i32,
 
-        fn print(this: Indirect) void {
-            std.debug.warn("[");
-            this.source.print();
-            if (this.offset) |offset| {
-                if (offset < 0) {
-                    std.debug.warn("{}", offset);
-                } else {
-                    std.debug.warn("+{}", offset);
-                }
-            }
-            std.debug.warn("]");
-        }
+        // fn print(this: Indirect) void {
+        //     std.debug.warn("[");
+        //     this.source.print();
+        //     if (this.offset) |offset| {
+        //         if (offset < 0) {
+        //             std.debug.warn("{}", offset);
+        //         } else {
+        //             std.debug.warn("+{}", offset);
+        //         }
+        //     }
+        //     std.debug.warn("]");
+        // }
     };
 };
 
@@ -78,6 +78,7 @@ const Parser = struct {
     allocator: *std.mem.Allocator,
     source: []const u8,
     offset: usize,
+    lineNumber: u32 = 0,
 
     constants: std.StringHashMap(Token),
 
@@ -170,6 +171,10 @@ const Parser = struct {
             } else {
                 break;
             }
+        }
+
+        if (this.source[this.offset] == '\n') {
+            this.lineNumber += 1;
         }
 
         switch (this.source[this.offset]) {
@@ -505,6 +510,16 @@ const Parser = struct {
     };
 };
 
+fn getRegisterAddress(register: u4) u32 {
+    const root = @import("root");
+    if (@hasDecl(root, "getRegisterAddress")) {
+        return root.getRegisterAddress(register);
+    } else {
+        // label addresses are hardcoded on page 0, address 0x00 … 0x40
+        return 4 * u32(register);
+    }
+}
+
 fn convertOperandToArg(comptime T: type, operand: Operand, labels: Labels) error{InvalidOperand}!T {
     // BIG TODO:
     // Implement offsetting here!
@@ -512,9 +527,8 @@ fn convertOperandToArg(comptime T: type, operand: Operand, labels: Labels) error
     switch (operand) {
         .direct => |opdir| switch (opdir) {
             .register => |reg| return T{
-                // label addresses are hardcoded on page 0, address 0x00 … 0x40
                 .indirection = Indirection{
-                    .address = ImmediateOrLabel.initImm(4 * u32(reg)),
+                    .address = ImmediateOrLabel.initImm(getRegisterAddress(reg)),
                     .offset = 0,
                 },
             },
@@ -536,9 +550,8 @@ fn convertOperandToArg(comptime T: type, operand: Operand, labels: Labels) error
         .indirect => |indirect| {
             switch (indirect.source) {
                 .register => |reg| return T{
-                    // label addresses are hardcoded on page 0, address 0x00 … 0x40
                     .doubleIndirection = Indirection{
-                        .address = ImmediateOrLabel.initImm(4 * u32(reg)),
+                        .address = ImmediateOrLabel.initImm(getRegisterAddress(reg)),
                         .offset = indirect.offset orelse 0,
                     },
                 },
@@ -585,6 +598,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
 
     var parser = Parser.init(&arena.allocator, source);
     defer parser.deinit();
+
     var labels = Labels{
         .local = std.StringHashMap(u32).init(&arena.allocator),
         .global = std.StringHashMap(u32).init(&arena.allocator),
@@ -599,7 +613,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
     // right position
     const absoffset = offset orelse @intCast(u32, @ptrToInt(target.ptr));
 
-    std.debug.warn("offset = {} ({})\n", offset, absoffset);
+    // std.debug.warn("offset = {} ({})\n", offset, absoffset);
 
     while (try parser.readNext()) |label_or_instruction| {
         switch (label_or_instruction) {
@@ -637,13 +651,13 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                         const FunType = @typeInfo(executor.data.Fn.fn_type).Fn;
 
                         if (FunType.args.len != instr.operandCount + 1) {
-                            std.debug.warn("operand count mismatch for {}. Expected {}, got {}!\n", instr.mnemonic, FunType.args.len - 1, instr.operandCount);
+                            // ("operand count mismatch for {}. Expected {}, got {}!\n", instr.mnemonic, FunType.args.len - 1, instr.operandCount);
                             return error.OperandMismatch;
                         }
 
                         switch (FunType.args.len) {
                             1 => {
-                                try @field(InstructionCore, executor.name)(writer);
+                                try @field(InstructionCore, executor.name)(&writer);
                             },
                             2 => {
                                 var arg0 = try convertOperandToArg(FunType.args[1].arg_type.?, instr.operands[0], labels);
@@ -671,8 +685,19 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                 }
 
                 if (!foundAny) {
-                    std.debug.warn("unknown instruction: {}\n", instr.mnemonic);
+                    // std.debug.warn("unknown instruction: {}\n", instr.mnemonic);
                     return error.UnknownMnemonic;
+                } else {
+                    // insert debug breakpoint
+                    // CD30              int 0x30
+                    // enable this for line callback :)
+                    if (@hasDecl(@import("root"), "enable_assembler_tracing")) {
+                        if (@import("root").enable_assembler_tracing) {
+                            try writer.write(u8(0xCD));
+                            try writer.write(u8(0x30));
+                            try writer.write(parser.lineNumber);
+                        }
+                    }
                 }
             },
             .data8 => |data| {
@@ -696,36 +721,39 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
     }
 
     // debug output:
-    {
-        std.debug.warn("Labels:\n");
-        var iter = labels.global.iterator();
-        while (iter.next()) |lbl| {
-            std.debug.warn("\t{}\n", lbl);
-        }
-    }
-    {
-        std.debug.warn("Constants:\n");
-        var iter = parser.constants.iterator();
-        while (iter.next()) |lbl| {
-            std.debug.warn("\t{}\n", lbl);
-        }
-    }
-    {
-        std.debug.warn("Global Patches:\n");
-        var iter = writer.globalPatchlist.iterator();
-        while (iter.next()) |lbl| {
-            std.debug.warn("\t{}\n", lbl);
-        }
-    }
+    // {
+    //     std.debug.warn("Labels:\n");
+    //     var iter = labels.global.iterator();
+    //     while (iter.next()) |lbl| {
+    //         std.debug.warn("\t{}\n", lbl);
+    //     }
+    // }
+    // {
+    //     std.debug.warn("Constants:\n");
+    //     var iter = parser.constants.iterator();
+    //     while (iter.next()) |lbl| {
+    //         std.debug.warn("\t{}\n", lbl);
+    //     }
+    // }
+    // {
+    //     std.debug.warn("Global Patches:\n");
+    //     var iter = writer.globalPatchlist.iterator();
+    //     while (iter.next()) |lbl| {
+    //         std.debug.warn("\t{}\n", lbl);
+    //     }
+    // }
 
     try writer.applyPatches(labels, .all);
 }
 
+/// A reference to a named label.
+/// May contain the offset of the label for faster assembly.
 const LabelRef = struct {
     label: []const u8,
     offset: ?u32,
 };
 
+/// A literal value that is noted by either a label reference or an immediate (written) number.
 const ImmediateOrLabel = union(enum) {
     immediate: u32,
     label: LabelRef,
@@ -775,9 +803,17 @@ const Writer = struct {
         onlyLocals,
     };
 
+    /// a patch that will be applied later.
+    /// Patches are required when labels are referenced but the offset of
+    /// the label is not yet known.
     const Patch = struct {
+        /// Offset in the `target` field of the `Writer` struct.
         offset_to_binary: u32,
+
+        /// Required when the label is referenced in an indirectoin via `[label+offset]`.
         offset_to_value: i32,
+
+        /// The name of the label.
         label: []const u8,
     };
 
@@ -884,11 +920,15 @@ const Writer = struct {
     }
 };
 
+/// First or second level indirection. second level indirection is required for
+/// fake registers as they are implemented by indirection as well.
 const Indirection = struct {
     address: ImmediateOrLabel,
     offset: i32,
 };
 
+/// An operand to an instruction that may be modified by the instruction.
+/// Must must either be a register name or a "regular" indirection.
 const InstrOutput = union(enum) {
     indirection: Indirection,
     doubleIndirection: Indirection,
@@ -965,6 +1005,7 @@ const InstrOutput = union(enum) {
     }
 };
 
+/// An operand to an instruction that is only read by the instruction.
 const InstrInput = union(enum) {
     immediate: ImmediateOrLabel,
     indirection: Indirection,
@@ -1021,6 +1062,22 @@ const InstrInput = union(enum) {
 
 const API = @import("root").assembler_api;
 
+fn emitConditionalJump(writer: *Writer, dst: InstrInput, jumpCode: u8) WriterError!void {
+
+    // make inverse jump mechanic:
+    // jump over the unconditional jump as
+    // conditional jumps are always short jumps and cannot
+    // use indirection
+    try writer.write(jumpCode); // emit NOP for debugging reference
+    const offset = try writer.emit(1);
+
+    const start = writer.offset;
+    try InstructionCore.jmp(writer, dst);
+    const end = writer.offset;
+
+    writer.target[offset] = @intCast(u8, end - start);
+}
+
 /// Contains emitter functions for every possible instructions.
 const InstructionCore = struct {
     /// moves src to dst.
@@ -1033,9 +1090,9 @@ const InstructionCore = struct {
     fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89D8              mov eax,ebx
+        // 89C3              mov ebx,eax
         try writer.write(u8(0x89));
-        try writer.write(u8(0xD8));
+        try writer.write(u8(0xC3));
 
         try dst.loadToEAX(writer);
 
@@ -1050,9 +1107,9 @@ const InstructionCore = struct {
     fn sub(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89D8              mov eax,ebx
+        // 89C3              mov ebx,eax
         try writer.write(u8(0x89));
-        try writer.write(u8(0xD8));
+        try writer.write(u8(0xC3));
 
         try dst.loadToEAX(writer);
 
@@ -1065,9 +1122,9 @@ const InstructionCore = struct {
     fn cmp(writer: *Writer, lhs: InstrInput, rhs: InstrInput) WriterError!void {
         try rhs.loadToEAX(writer);
 
-        // 89D8              mov eax,ebx
+        // 89C3              mov ebx,eax
         try writer.write(u8(0x89));
-        try writer.write(u8(0xD8));
+        try writer.write(u8(0xC3));
 
         try lhs.loadToEAX(writer);
 
@@ -1112,68 +1169,72 @@ const InstructionCore = struct {
         }
     }
     fn jnz(writer: *Writer, pos: InstrInput) WriterError!void {
-
-        // make inverse jump mechanic:
-        // jump over the unconditional jump as
-        // conditional jumps are always short jumps and cannot
-        // use indirection
-
         // 7404              jz +4
-        try writer.write(u8(0x74)); // emit NOP for debugging reference
-        const offset = try writer.emit(1);
-
-        const start = writer.offset;
-        try jmp(writer, pos);
-        const end = writer.offset;
-
-        writer.target[offset] = @intCast(u8, end - start);
+        try emitConditionalJump(writer, pos, 0x74);
     }
     fn jiz(writer: *Writer, pos: InstrInput) WriterError!void {
-        // description: see jnz
-
         // 7504              jnz +4
-        try writer.write(u8(0x74));
-        const offset = try writer.emit(1);
-
-        const start = writer.offset;
-        try jmp(writer, pos);
-        const end = writer.offset;
-
-        writer.target[offset] = @intCast(u8, end - start);
+        try emitConditionalJump(writer, pos, 0x75);
     }
     fn jlz(writer: *Writer, pos: InstrInput) WriterError!void {
-        // description: see jnz
-
         // 7D06              jnl 0x4d # jump not less
-        try writer.write(u8(0x7D));
-        const offset = try writer.emit(1);
-
-        const start = writer.offset;
-        try jmp(writer, pos);
-        const end = writer.offset;
-
-        writer.target[offset] = @intCast(u8, end - start);
+        try emitConditionalJump(writer, pos, 0x7D);
     }
     fn jgz(writer: *Writer, pos: InstrInput) WriterError!void {
-        // description: see jnz
-
         // 7E04              jng 0x4d # jump not greater
-        try writer.write(u8(0x7E));
-        const offset = try writer.emit(1);
-
-        const start = writer.offset;
-        try jmp(writer, pos);
-        const end = writer.offset;
-
-        writer.target[offset] = @intCast(u8, end - start);
+        try emitConditionalJump(writer, pos, 0x7E);
     }
-    fn shl(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("shl {}, {}\n", dst, src);
+    fn mul(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        // 89C3              mov ebx,eax
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xC3));
+
+        try dst.loadToEAX(writer);
+
+        // F7E3              mul ebx
+        // clobbers EDX with higher part
+        try writer.write(u8(0xF7));
+        try writer.write(u8(0xE3));
+
+        try dst.saveFromEAX(writer);
     }
-    fn shr(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
-        try writer.write(u8(0x90)); // emit NOP for debugging reference
-        std.debug.warn("shr {}, {}\n", dst, src);
+    fn div(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        // 89C3              mov ebx,eax
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xC3));
+
+        try dst.loadToEAX(writer);
+
+        // F7F3              div ebx
+        // clobbers EDX with remainder part
+        try writer.write(u8(0xF7));
+        try writer.write(u8(0xF3));
+
+        try dst.saveFromEAX(writer);
+    }
+    fn mod(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        // 89C3              mov ebx,eax
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xC3));
+
+        try dst.loadToEAX(writer);
+
+        // F7F3              div ebx
+        // clobbers EDX with remainder part
+        try writer.write(u8(0xF7));
+        try writer.write(u8(0xF3));
+
+        // 89D0              mov eax,edx
+        try writer.write(u8(0x89));
+        try writer.write(u8(0xD0));
+
+        try dst.saveFromEAX(writer);
     }
     fn gettime(writer: *Writer, dst: InstrOutput) WriterError!void {
         // extern fn () u32
@@ -1193,7 +1254,7 @@ const InstructionCore = struct {
 
         // B844332211        mov eax,0x11223344
         try writer.write(u8(0xB8));
-        try writer.write(@intCast(u32, @ptrToInt(API.gettime)));
+        try writer.write(@intCast(u32, @ptrToInt(API.getkey)));
 
         // FFD0              call eax
         try writer.write(u8(0xFF));
@@ -1242,7 +1303,7 @@ const InstructionCore = struct {
 
         // B844332211        mov eax,0x11223344
         try writer.write(u8(0xB8));
-        try writer.write(@intCast(u32, @ptrToInt(API.setpix)));
+        try writer.write(@intCast(u32, @ptrToInt(API.getpix)));
 
         // FFD0              call eax
         try writer.write(u8(0xFF));
@@ -1254,5 +1315,35 @@ const InstructionCore = struct {
         try writer.write(u8(0x08)); // pop 2 args
 
         try col.saveFromEAX(writer);
+    }
+    fn flushpix(writer: *Writer) WriterError!void {
+        // extern fn () void
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.flushpix)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+    }
+    fn trace(writer: *Writer, on: InstrInput) WriterError!void {
+        // extern fn (x: u32, y: u32, col: u32) void
+        try on.loadToEAX(writer);
+        // 50                push eax
+        try writer.write(u8(0x50));
+
+        // B844332211        mov eax,0x11223344
+        try writer.write(u8(0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.trace)));
+
+        // FFD0              call eax
+        try writer.write(u8(0xFF));
+        try writer.write(u8(0xD0));
+
+        // 83C444            add esp,byte +0x04
+        try writer.write(u8(0x83));
+        try writer.write(u8(0xC4));
+        try writer.write(u8(0x04)); // pop 1 args
     }
 };
