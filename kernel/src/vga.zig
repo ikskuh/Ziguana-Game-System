@@ -101,10 +101,10 @@ pub fn setPixelDirect(x: usize, y: usize, c: u4) void {
     var mask: u8 = u8(0x80) >> px;
     var pmask: u8 = 1;
 
-    var p: usize = 0;
-    var segment = get_fb_seg();
-    while (p < 4) : (p += 1) {
+    comptime var p: usize = 0;
+    inline while (p < 4) : (p += 1) {
         setPlane(@truncate(u2, p));
+        var segment = get_fb_seg();
         const src = segment[off];
         segment[off] = if ((pmask & c) != 0) src | mask else src & ~mask;
         pmask <<= 1;
@@ -122,7 +122,10 @@ pub fn getPixel(x: usize, y: usize) u4 {
 }
 
 pub fn swapBuffers() void {
-    const bytes_per_line = 640 / 8;
+    @setRuntimeSafety(false);
+    @setCold(false);
+
+    // const bytes_per_line = 640 / 8;
 
     var plane: usize = 0;
     while (plane < 4) : (plane += 1) {
@@ -131,12 +134,13 @@ pub fn swapBuffers() void {
 
         var segment = get_fb_seg();
 
+        var offset: usize = 0;
+
         var y: usize = 0;
         while (y < 480) : (y += 1) {
             var x: usize = 0;
             while (x < 640) : (x += 8) {
-                const offset = bytes_per_line * y + (x / 8);
-
+                // const offset = bytes_per_line * y + (x / 8);
                 var bits: u8 = 0;
 
                 // unroll for maximum fastness
@@ -150,6 +154,7 @@ pub fn swapBuffers() void {
                 }
 
                 segment[offset] = bits;
+                offset += 1;
             }
         }
     }

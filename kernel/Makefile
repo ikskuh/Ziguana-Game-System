@@ -7,6 +7,8 @@ QEMU_FLAGS+=\
 	-m 64M \
 	-d cpu_reset,guest_errors
 
+ZIG_FLAGS=#-Drelease-fast=true
+
 all: boot.img
 
 run: boot.img
@@ -22,7 +24,7 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ zig-cache/bin/kernel ::
 
 zig-cache/bin/kernel:
-	zig build # -Drelease-fast=true
+	zig build $(ZIG_FLAGS)
 
 zig-cache/bin/assembler:
 	zig build # -Drelease-fast=true

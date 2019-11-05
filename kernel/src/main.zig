@@ -37,16 +37,17 @@ var enable_live_tracing = false;
 
 pub const assembler_api = struct {
     pub extern fn flushpix() void {
-        VGA.swapBuffers();
+        // VGA.swapBuffers();
     }
 
     pub extern fn trace(value: u32) void {
-        Terminal.println("trace({})", value);
-        // enable_live_tracing = (on != 0);
+        // Terminal.println("trace({})", value);
+        enable_live_tracing = (value != 0);
     }
 
     pub extern fn setpix(x: u32, y: u32, col: u32) void {
         // Terminal.println("setpix({},{},{})", x, y, col);
+        VGA.setPixelDirect(x, y, @truncate(u4, col));
         VGA.setPixel(x, y, @truncate(u4, col));
     }
     pub extern fn getpix(x: u32, y: u32) u32 {
@@ -90,7 +91,7 @@ pub fn debugCall(cpu: *Interrupts.CpuState) void {
     cpu.eip += 4;
 }
 
-const developSource = @embedFile("../../gasm/develop.asm");
+const developSource = @embedFile("../../gasm/concept.asm");
 
 pub fn main() anyerror!void {
     Terminal.clear();

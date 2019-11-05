@@ -633,6 +633,18 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                 }
             },
             .instruction => |instr| {
+
+                // insert debug tracers
+                // CD30              int 0x30
+                // enable this for line callback :)
+                if (@hasDecl(@import("root"), "enable_assembler_tracing")) {
+                    if (@import("root").enable_assembler_tracing) {
+                        try writer.write(u8(0xCD));
+                        try writer.write(u8(0x30));
+                        try writer.write(parser.lineNumber);
+                    }
+                }
+
                 // std.debug.warn("\t{}", instr.mnemonic);
                 // var i: usize = 0;
                 // while (i < instr.operandCount) : (i += 1) {
@@ -687,17 +699,6 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                 if (!foundAny) {
                     // std.debug.warn("unknown instruction: {}\n", instr.mnemonic);
                     return error.UnknownMnemonic;
-                } else {
-                    // insert debug breakpoint
-                    // CD30              int 0x30
-                    // enable this for line callback :)
-                    if (@hasDecl(@import("root"), "enable_assembler_tracing")) {
-                        if (@import("root").enable_assembler_tracing) {
-                            try writer.write(u8(0xCD));
-                            try writer.write(u8(0x30));
-                            try writer.write(parser.lineNumber);
-                        }
-                    }
                 }
             },
             .data8 => |data| {
