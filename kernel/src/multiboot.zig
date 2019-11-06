@@ -116,6 +116,45 @@ pub const Structure = packed struct {
     pub const MemoryMap = extern struct {
         mmap_length: u32,
         mmap_addr: u32,
+
+        const Type = enum(u32) {
+            available = 1,
+            reserved = 2,
+            acpi = 3,
+            reservedForHibernation = 4,
+            defectiveRAM = 5,
+        };
+
+        const Entry = packed struct {
+            size: u32,
+            baseAddress: u64,
+            length: u64,
+            type: Type,
+        };
+
+        const Iterator = struct {
+            end_pos: u32,
+            current_pos: u32,
+
+            pub fn next(this: *Iterator) ?*const Entry {
+                // official multiboot documentation is bad here :(
+                // this is the right way to iterate over the multiboot structure
+                if (this.current_pos >= this.end_pos) {
+                    return null;
+                } else {
+                    var current = @intToPtr(*const Entry, this.current_pos);
+                    this.current_pos += (current.size + 0x04);
+                    return current;
+                }
+            }
+        };
+
+        fn iterator(this: MemoryMap) Iterator {
+            return Iterator{
+                .end_pos = this.mmap_addr + this.mmap_length,
+                .current_pos = this.mmap_addr,
+            };
+        }
     };
 
     pub const Drives = extern struct {

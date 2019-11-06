@@ -24,7 +24,7 @@ init:
 resetGame:
 	mov [playerX], 320
 	mov [playerY], 240
-	mov [playerDir], 0
+	mov [playerDir], 4 # stop
 
 	# clear screen
 	trace 3 # buffered Pixel API
@@ -65,9 +65,13 @@ gameLoop:
 	add [playerY], r2
 
 	# Test if we hit something
+	# but only if we are moving
+	cmp [playerDir], 4
+	jiz .skipHitTest
 	getpix r0, [playerX], [playerY]
 	cmp r0, BGCOLOR
 	jnz loseGame
+.skipHitTest:
 
 	# Now test for movement
 	getkey r0 # returns last pressed key scancode and resets it to 0
@@ -156,6 +160,7 @@ dirs:
 	.dw 0, 0xFFFFFFFF
 	.dw 0xFFFFFFFF, 0
 	.dw 0, 1
+	.dw 0, 0
 
 nextFrame:
 	.dw 0

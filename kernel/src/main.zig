@@ -66,6 +66,7 @@ pub const assembler_api = struct {
         }
         VGA.setPixel(x, y, @truncate(u4, col));
     }
+
     pub extern fn getpix(x: u32, y: u32) u32 {
         // Terminal.println("getpix({},{})", x, y);
         return VGA.getPixel(x, y);
@@ -206,7 +207,48 @@ fn startTask(task: TaskId) noreturn {
     taskList.at(task).entryPoint();
 }
 
+extern const __start: u8;
+extern const __end: u8;
+
 pub fn main() anyerror!void {
+    // Init PMM
+
+    // mark everything in the "memmap" as free
+    if (multiboot.flags != 0) {
+        var iter = multiboot.mmap.iterator();
+        while (iter.next()) |entry| {
+            if (entry.baseAddress + entry.length > 0xFFFFFFFF)
+                continue; // out of range
+
+            Terminal.println("mmap = {}", entry);
+
+            var start = std.mem.alignForward(@intCast(usize, entry.baseAddress), 4096); // only allocate full pages
+            var length = entry.length - (start - entry.baseAddress); // remove padded bytes
+            while (start < entry.baseAddress + length) : (start += 4096) {
+                pmm_allocator.markPage(@intCast(usize, start), switch (entry.type) {
+                    .available => @typeOf(pmm_allocator).Marker.free,
+                    else => @typeOf(pmm_allocator).Marker.allocated,
+                });
+            }
+        }
+    }
+
+    // mark "ourself" used
+    {
+        var pos = @ptrToInt(&__start);
+        std.debug.assert(std.mem.isAligned(pos, 4096));
+        while (pos < @ptrToInt(&__start)) : (pos += 4096) {
+            pmm_allocator.markPage(pos, .allocated);
+        }
+    }
+
+    Terminal.println("free memory: {} pages", pmm_allocator.getFreePageCount());
+
+    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
+    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
+    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
+    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
+
     Terminal.clear();
     {
         Terminal.print("[ ] Initialize gdt...\r");
@@ -235,7 +277,8 @@ pub fn main() anyerror!void {
         Terminal.println("[X");
     }
 
-    const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
+    // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
+    const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
 
     Terminal.print("Multiboot Structure: {*}\r\n", multiboot);
     inline for (@typeInfo(Multiboot.Structure).Struct.fields) |fld| {
@@ -253,7 +296,7 @@ pub fn main() anyerror!void {
 
     VGA.init();
 
-    Terminal.println("Assembler Source:\r\n{}", developSource);
+    // Terminal.println("Assembler Source:\r\n{}", developSource);
 
     {
         var y: usize = 0;
@@ -337,3 +380,70 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
         asm volatile ("hlt");
     }
 }
+
+fn BitmapAllocator(comptime BitCount: comptime_int) type {
+    std.debug.assert((BitCount & 0x1F) == 0);
+    return struct {
+        const This = @This();
+        const WordCount = BitCount / 32;
+
+        pub const Marker = enum {
+            free,
+            allocated,
+        };
+
+        /// one bit for each page in RAM.
+        /// If the bit is set, the corresponding page is free.
+        bitmap: [WordCount]u32,
+
+        fn init() This {
+            return This{
+                // everything is allocated
+                .bitmap = [_]u32{0} ** WordCount,
+            };
+        }
+
+        fn allocPage(this: *This) ?usize {
+            for (this.bitmap) |*bits, i| {
+                if (bits.* == 0)
+                    continue;
+                comptime var b = 0;
+                inline while (b < 32) : (b += 1) {
+                    const bitmask = (1 << b);
+                    if ((bits.* & bitmask) != 0) {
+                        bits.* &= ~u32(bitmask);
+                        return 4096 * (32 * i + b);
+                    }
+                }
+                unreachable;
+            }
+            return null;
+        }
+
+        fn markPage(this: *This, ptr: usize, marker: Marker) void {
+            std.debug.assert(std.mem.isAligned(ptr, 4096));
+            const page = ptr / 4096;
+            const i = page / 32;
+            const b = @truncate(u5, page % 32);
+            switch (marker) {
+                .allocated => this.bitmap[i] &= ~(u32(1) << b),
+                .free => this.bitmap[i] |= (u32(1) << b),
+            }
+        }
+
+        fn freePage(this: *This, ptr: usize) void {
+            this.markPage(ptr, .free);
+        }
+
+        fn getFreePageCount(this: This) usize {
+            var count: usize = 0;
+            for (this.bitmap) |bits, i| {
+                count += @popCount(u32, bits);
+            }
+            return count;
+        }
+    };
+}
+
+// 1 MBit for 4 GB @ 4096 pages
+var pmm_allocator = BitmapAllocator(1 * 1024 * 1024).init();

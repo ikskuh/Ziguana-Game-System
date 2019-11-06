@@ -11,7 +11,8 @@ fn sendCommand(cmd: u8) void {
 
 pub fn init() void {
     // IRQ-Handler fuer Tastatur-IRQ(1) registrieren
-    Interrupts.setIRQHandler(1, irqHandler);
+    Interrupts.setIRQHandler(1, kbdIrqHandler);
+    // Interrupts.setkbdIrqHandler(12, mouseIrqHandler);
 
     // Tastaturpuffer leeren
     while ((io.inb(0x64) & 0x1) != 0) {
@@ -65,7 +66,7 @@ const IrqState = enum {
 var irqState: IrqState = .default;
 var e1Byte0: u8 = undefined;
 
-fn irqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
+fn kbdIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
     const inputData = io.inb(0x60);
     irqState = switch (irqState) {
         .default => switch (inputData) {
@@ -100,4 +101,8 @@ fn irqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
     };
 
     return cpu;
+}
+
+fn mouseIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
+    @panic("EEK, A MOUSE!");
 }
