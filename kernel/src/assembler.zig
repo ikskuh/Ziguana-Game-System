@@ -1079,6 +1079,13 @@ fn emitConditionalJump(writer: *Writer, dst: InstrInput, jumpCode: u8) WriterErr
     writer.target[offset] = @intCast(u8, end - start);
 }
 
+fn emitMovEbxToEax(writer: *Writer) WriterError!void {
+
+    // 89C3              mov ebx,eax
+    try writer.write(u8(0x89));
+    try writer.write(u8(0xC3));
+}
+
 /// Contains emitter functions for every possible instructions.
 const InstructionCore = struct {
     /// moves src to dst.
@@ -1091,9 +1098,7 @@ const InstructionCore = struct {
     fn add(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try dst.loadToEAX(writer);
 
@@ -1108,9 +1113,7 @@ const InstructionCore = struct {
     fn sub(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try dst.loadToEAX(writer);
 
@@ -1123,9 +1126,7 @@ const InstructionCore = struct {
     fn cmp(writer: *Writer, lhs: InstrInput, rhs: InstrInput) WriterError!void {
         try rhs.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try lhs.loadToEAX(writer);
 
@@ -1188,9 +1189,7 @@ const InstructionCore = struct {
     fn mul(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try dst.loadToEAX(writer);
 
@@ -1204,9 +1203,7 @@ const InstructionCore = struct {
     fn div(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try dst.loadToEAX(writer);
 
@@ -1220,9 +1217,7 @@ const InstructionCore = struct {
     fn mod(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
         try src.loadToEAX(writer);
 
-        // 89C3              mov ebx,eax
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xC3));
+        try emitMovEbxToEax(writer);
 
         try dst.loadToEAX(writer);
 
@@ -1263,6 +1258,69 @@ const InstructionCore = struct {
 
         try dst.saveFromEAX(writer);
     }
+
+    fn @"and"(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        try emitMovEbxToEax(writer);
+
+        try dst.loadToEAX(writer);
+
+        //  21D8              and eax,ebx
+        try writer.write(u8(0x21));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
+    }
+
+    fn @"or"(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        try emitMovEbxToEax(writer);
+
+        try dst.loadToEAX(writer);
+
+        // 09D8              or eax,ebx
+        try writer.write(u8(0x09));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
+    }
+
+    fn @"xor"(writer: *Writer, dst: InstrOutput, src: InstrInput) WriterError!void {
+        try src.loadToEAX(writer);
+
+        try emitMovEbxToEax(writer);
+
+        try dst.loadToEAX(writer);
+
+        // 31D8              xor eax,ebx
+        try writer.write(u8(0x31));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
+    }
+
+    fn @"not"(writer: *Writer, dst: InstrOutput) WriterError!void {
+        try dst.loadToEAX(writer);
+
+        // F7D0              not eax
+        try writer.write(u8(0xF7));
+        try writer.write(u8(0xD0));
+
+        try dst.saveFromEAX(writer);
+    }
+
+    fn @"neg"(writer: *Writer, dst: InstrOutput) WriterError!void {
+        try dst.loadToEAX(writer);
+
+        // F7D8              neg eax
+        try writer.write(u8(0xF7));
+        try writer.write(u8(0xD8));
+
+        try dst.saveFromEAX(writer);
+    }
+
     fn setpix(writer: *Writer, x: InstrInput, y: InstrInput, col: InstrInput) WriterError!void {
         // extern fn (x: u32, y: u32, col: u32) void
         try col.loadToEAX(writer);

@@ -10,6 +10,8 @@ const Keyboard = @import("keyboard.zig");
 
 const Assembler = @import("assembler.zig");
 
+const EnumArray = @import("enum-array.zig").EnumArray;
+
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 var systemTicks: u32 = 0;
@@ -20,7 +22,8 @@ fn handleTimerIRQ(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
     return cpu;
 }
 
-export var scratchpad: [4096]u8 align(16) = undefined;
+export var usercode: [4096]u8 align(16) = undefined;
+var usercodeValid: bool = false;
 
 // 1 MB Fixed buffer for debug purposes
 var fixedBufferForAllocation: [1 * 1024 * 1024]u8 align(16) = undefined;
@@ -37,17 +40,30 @@ var enable_live_tracing = false;
 
 pub const assembler_api = struct {
     pub extern fn flushpix() void {
-        // VGA.swapBuffers();
+        switch (vgaApi) {
+            .buffered => VGA.swapBuffers(),
+            else => {},
+        }
     }
 
     pub extern fn trace(value: u32) void {
-        // Terminal.println("trace({})", value);
-        enable_live_tracing = (value != 0);
+        switch (value) {
+            0, 1 => {
+                enable_live_tracing = (value != 0);
+            },
+            2 => vgaApi = .immediate,
+            3 => vgaApi = .buffered,
+            else => {
+                Terminal.println("trace({})", value);
+            },
+        }
     }
 
     pub extern fn setpix(x: u32, y: u32, col: u32) void {
         // Terminal.println("setpix({},{},{})", x, y, col);
-        VGA.setPixelDirect(x, y, @truncate(u4, col));
+        if (vgaApi == .immediate) {
+            VGA.setPixelDirect(x, y, @truncate(u4, col));
+        }
         VGA.setPixel(x, y, @truncate(u4, col));
     }
     pub extern fn getpix(x: u32, y: u32) u32 {
@@ -77,6 +93,12 @@ pub const assembler_api = struct {
     }
 };
 
+const VgaApi = enum {
+    buffered,
+    immediate,
+};
+var vgaApi: VgaApi = .immediate;
+
 pub fn debugCall(cpu: *Interrupts.CpuState) void {
     if (!enable_live_tracing)
         return;
@@ -92,6 +114,97 @@ pub fn debugCall(cpu: *Interrupts.CpuState) void {
 }
 
 const developSource = @embedFile("../../gasm/concept.asm");
+
+const Task = struct {
+    entryPoint: extern fn () noreturn = undefined,
+};
+
+const TaskId = enum {
+    shell,
+    codeEditor,
+    spriteEditor,
+    tilemapEditor,
+    codeRunner,
+};
+
+extern fn editorNotImplementedYet() noreturn {
+    @panic("This editor is not implemented yet!");
+}
+
+extern fn executeUsercode() noreturn {
+    // start the user-compiled script
+    if (usercodeValid) {
+        asm volatile ("jmp usercode");
+        unreachable;
+    } else {
+        startTask(.shell);
+    }
+}
+
+extern fn executeTilemapEditor() noreturn {
+    var time: usize = 0;
+    var color: u4 = 1;
+    while (true) : (time += 1) {
+        if (Keyboard.getKey()) |key| {
+            if (key.set == .default and key.scancode == 57) {
+                // space
+                if (@addWithOverflow(u4, color, 1, &color)) {
+                    color = 1;
+                }
+            }
+        }
+
+        var y: usize = 0;
+        while (y < 480) : (y += 1) {
+            var x: usize = 0;
+            while (x < 640) : (x += 1) {
+                // c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
+                const c = if (y > (systemTicks % 480)) color else 0;
+                VGA.setPixel(x, y, c);
+            }
+        }
+
+        VGA.swapBuffers();
+    }
+}
+
+const TaskList = EnumArray(TaskId, Task);
+const taskList = TaskList.initMap(([_]TaskList.KV{
+    TaskList.KV{
+        .key = .shell,
+        .value = Task{
+            .entryPoint = editorNotImplementedYet,
+        },
+    },
+    TaskList.KV{
+        .key = .codeEditor,
+        .value = Task{
+            .entryPoint = editorNotImplementedYet,
+        },
+    },
+    TaskList.KV{
+        .key = .spriteEditor,
+        .value = Task{
+            .entryPoint = editorNotImplementedYet,
+        },
+    },
+    TaskList.KV{
+        .key = .tilemapEditor,
+        .value = Task{
+            .entryPoint = executeTilemapEditor,
+        },
+    },
+    TaskList.KV{
+        .key = .codeRunner,
+        .value = Task{
+            .entryPoint = executeUsercode,
+        },
+    },
+}));
+
+fn startTask(task: TaskId) noreturn {
+    taskList.at(task).entryPoint();
+}
 
 pub fn main() anyerror!void {
     Terminal.clear();
@@ -158,52 +271,14 @@ pub fn main() anyerror!void {
     var fba = std.heap.FixedBufferAllocator.init(fixedBufferForAllocation[0..]);
 
     // foo
-    try Assembler.assemble(&fba.allocator, developSource, scratchpad[0..], null);
+    usercodeValid = false;
+    try Assembler.assemble(&fba.allocator, developSource, usercode[0..], null);
+    usercodeValid = true;
 
     Terminal.println("Assembled code successfully!");
     Terminal.println("Memory required: {} bytes!", fba.end_index);
 
-    // And now for the real test!
-
-    // this magically faults
-    // const magicAssemblerFunction = @ptrCast(extern fn () void, &scratchpad);
-    asm volatile ("jmp scratchpad");
-
-    // while (systemTicks < 100) {
-    //     var last = @atomicLoad(u32, &systemTicks, .Acquire);
-
-    //     Terminal.println("systicks: {}\n", last);
-
-    //     while (@atomicLoad(u32, &systemTicks, .Acquire) == last) {}
-    // }
-
-    // var rng_engine = std.rand.DefaultPrng.init(0);
-    // var rng = &rng_engine.random;
-
-    // var time: usize = 0;
-    // var color: u4 = 1;
-    // while (true) : (time += 1) {
-    // if (Keyboard.getKey()) |key| {
-    //     if (key.set == .default and key.scancode == 57) {
-    //         // space
-    //         if (@addWithOverflow(u4, color, 1, &color)) {
-    //             color = 1;
-    //         }
-    //     }
-    // }
-
-    // var y: usize = 0;
-    // while (y < 480) : (y += 1) {
-    //     var x: usize = 0;
-    //     while (x < 640) : (x += 1) {
-    //         // c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
-    //         const c = if (y > (systemTicks % 480)) color else 0;
-    //         VGA.setPixel(x, y, c);
-    //     }
-    // }
-
-    // VGA.swapBuffers();
-    // }
+    startTask(.codeRunner);
 }
 
 fn kmain() noreturn {
@@ -247,12 +322,15 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     @setCold(true);
     Interrupts.disableExternalInterrupts();
     Terminal.setColors(.white, .red);
-    Terminal.print("\r\n\r\nKERNEL PANIC:\r\n{}", msg);
+    Terminal.println("\r\n\r\nKERNEL PANIC: {}\r\n", msg);
 
     Terminal.println("Registers:");
     for (registers) |reg, i| {
         Terminal.println("r{} = {}", i, reg);
     }
+
+    Terminal.println("Stack Trace: 0x{X}", @returnAddress());
+    Terminal.println("{}", error_return_trace);
 
     while (true) {
         Interrupts.disableExternalInterrupts();

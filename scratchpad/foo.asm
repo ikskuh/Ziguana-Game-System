@@ -61,5 +61,16 @@ init:
 
 	int 0x30
 
+	nop
+
+	and eax, ebx
+	or eax, ebx
+	xor eax, ebx
+	not eax
+	
+	nop
+	
+	neg eax
+
 next:
 	nop

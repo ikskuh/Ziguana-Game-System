@@ -12,11 +12,12 @@
 
 .def BGCOLOR, 0
 .def PLAYERCOLOR, 1
-.def UP,    0x10048 # escaped0 scancode 72
-.def LEFT,  0x1004B # escaped0 scancode 75
-.def DOWN,  0x10050 # escaped0 scancode 80
-.def RIGHT, 0x1004D # escaped0 scancode 77
-
+.def RED, 4
+.def UP,    0x10048 # escaped0 scancode 72 ↑
+.def LEFT,  0x1004B # escaped0 scancode 75 ←
+.def DOWN,  0x10050 # escaped0 scancode 80 ↓
+.def RIGHT, 0x1004D # escaped0 scancode 77 →
+.def SPACE, 0x00039 # space
 init:
 	jmp resetGame
 
@@ -26,6 +27,7 @@ resetGame:
 	mov [playerDir], 0
 
 	# clear screen
+	trace 3 # buffered Pixel API
 	mov r1, 0 # Y
 .loopY: # local labels are only valid between two global labels
 	mov r0, 0 # X
@@ -42,13 +44,14 @@ resetGame:
 	# Refresh screen
 	flushpix
 
+	trace 2 # immediate Pixel API
+
 gameLoop:
 	# Store the time stamp for the next frame
 	gettime [nextFrame]
 	add [nextFrame], 16
 
 	setpix [playerX], [playerY], 1
-	flushpix
 
 	# Load dx, dy into r1, r2
 	mov r0, [playerDir]
@@ -104,7 +107,40 @@ gameLoop:
 
 loseGame:
 	# sad...
-	jmp loseGame
+
+	trace 3 # buffered Pixel API
+
+	# clear screen
+	mov r1, 0 # Y
+.loopY: # local labels are only valid between two global labels
+	mov r0, 0 # X
+.loopX:
+	setpix r0, r1, RED
+	add r0, 1
+	cmp r0, 640
+	jnz .loopX
+
+	# this takes sufficient time
+	mov r2, r1
+	and r2, 0x0F
+	cmp r2, 0
+	jnz .skipFlush
+
+	flushpix
+.skipFlush:
+	
+	add r1, 1
+	cmp r1, 480
+	jnz .loopY # jump non-zero
+
+	flushpix
+
+.loop:
+	getkey r0
+	cmp r0, SPACE
+	jiz resetGame
+
+	jmp .loop
 
 .align 4
 
