@@ -11,6 +11,7 @@ const Keyboard = @import("keyboard.zig");
 const Assembler = @import("assembler.zig");
 
 const EnumArray = @import("enum-array.zig").EnumArray;
+const BitmapAllocator = @import("bitmap-allocator.zig").BitmapAllocator;
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
@@ -210,6 +211,21 @@ fn startTask(task: TaskId) noreturn {
 extern const __start: u8;
 extern const __end: u8;
 
+fn dumpPMM(msg: []const u8) void {
+    Terminal.println("{}:", msg);
+    for (pmm_allocator.bitmap) |bits, i| {
+        if (i < 20) {
+            comptime var j = 0;
+            inline while (j < 32) : (j += 1) {
+                Terminal.print("{}", (bits >> j) & 1);
+            }
+            if (i % 4 == 3) {
+                Terminal.println("");
+            }
+        }
+    }
+}
+
 pub fn main() anyerror!void {
     // Init PMM
 
@@ -242,6 +258,13 @@ pub fn main() anyerror!void {
         }
     }
 
+    // Mark MMIO area as allocated
+    {
+        var i: usize = 0x0000;
+        while (i < 0x10000) : (i += 0x1000) {
+            pmm_allocator.markPage(i, .allocated);
+        }
+    }
     Terminal.println("free memory: {} pages", pmm_allocator.getFreePageCount());
 
     Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
@@ -255,6 +278,10 @@ pub fn main() anyerror!void {
         GDT.init();
         Terminal.println("[X");
     }
+
+    dumpPMM("pre-pmm");
+    var pageDirectory = try vmm_mapper.init();
+
     {
         Terminal.print("[ ] Initialize idt...\r");
         Interrupts.init();
@@ -381,69 +408,139 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     }
 }
 
-fn BitmapAllocator(comptime BitCount: comptime_int) type {
-    std.debug.assert((BitCount & 0x1F) == 0);
-    return struct {
-        const This = @This();
-        const WordCount = BitCount / 32;
-
-        pub const Marker = enum {
-            free,
-            allocated,
-        };
-
-        /// one bit for each page in RAM.
-        /// If the bit is set, the corresponding page is free.
-        bitmap: [WordCount]u32,
-
-        fn init() This {
-            return This{
-                // everything is allocated
-                .bitmap = [_]u32{0} ** WordCount,
-            };
-        }
-
-        fn allocPage(this: *This) ?usize {
-            for (this.bitmap) |*bits, i| {
-                if (bits.* == 0)
-                    continue;
-                comptime var b = 0;
-                inline while (b < 32) : (b += 1) {
-                    const bitmask = (1 << b);
-                    if ((bits.* & bitmask) != 0) {
-                        bits.* &= ~u32(bitmask);
-                        return 4096 * (32 * i + b);
-                    }
-                }
-                unreachable;
-            }
-            return null;
-        }
-
-        fn markPage(this: *This, ptr: usize, marker: Marker) void {
-            std.debug.assert(std.mem.isAligned(ptr, 4096));
-            const page = ptr / 4096;
-            const i = page / 32;
-            const b = @truncate(u5, page % 32);
-            switch (marker) {
-                .allocated => this.bitmap[i] &= ~(u32(1) << b),
-                .free => this.bitmap[i] |= (u32(1) << b),
-            }
-        }
-
-        fn freePage(this: *This, ptr: usize) void {
-            this.markPage(ptr, .free);
-        }
-
-        fn getFreePageCount(this: This) usize {
-            var count: usize = 0;
-            for (this.bitmap) |bits, i| {
-                count += @popCount(u32, bits);
-            }
-            return count;
-        }
-    };
-}
-
 // 1 MBit for 4 GB @ 4096 pages
 var pmm_allocator = BitmapAllocator(1 * 1024 * 1024).init();
+
+const vmm_mapper = struct {
+    const startOfMemory = 0x100000; // 1 MB into virtual memory
+    var sizeOfMemory = 0; // not initialized
+
+    fn init() !*PageDirectory {
+        var directory = @intToPtr(*PageDirectory, pmm_allocator.allocPage() orelse return error.OutOfMemory);
+        @memset(@ptrCast([*]u8, directory), 0, 4096);
+
+        var pointer = u32(startOfMemory);
+        while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
+            // Terminal.println("Map {X} to {X}", pmm_address, pointer);
+            try directory.mapPage(pointer, pmm_address, .readWrite);
+        }
+
+        return directory;
+    }
+
+    const PageDirectory = extern struct {
+        entries: [1024]Entry,
+
+        fn mapPage(directory: *PageDirectory, virtualAddress: usize, physicalAddress: usize, access: WriteProtection) error{
+            AlreadyMapped,
+            OutOfMemory,
+        }!void {
+            const loc = addrToLocation(virtualAddress);
+
+            var dirEntry = &directory.entries[loc.directoryIndex];
+            if(!dirEntry.isMapped)
+            {
+                var tbl = @intToPtr(*allowzero PageTable, pmm_allocator.allocPage() orelse return error.OutOfMemory);
+                @memset(@ptrCast([*]u8, tbl), 0, 4096);
+
+                Terminal.println("Alloc page entry: {*}", tbl);
+
+                dirEntry.* = Entry{
+                    .isMapped = true,
+                    .writeProtection = .readWrite,
+                    .access = .ring0,
+                    .enableWriteThroughCaching = false,
+                    .disableCaching = false,
+                    .wasAccessed = false,
+                    .wasWritten = false,
+                    .size = .fourKilo,
+                    .dontRefreshTLB = false,
+                    .userBits = 0,
+                    // Hack to workaround #2627
+                    .pointer0 = @truncate(u4, (@ptrToInt(tbl) >> 12)),
+                    .pointer1 = @intCast(u16, (@ptrToInt(tbl) >> 16)),
+                };
+            }
+
+            var table = @intToPtr(*allowzero PageTable, ((usize(dirEntry.pointer1) << 4) | usize(dirEntry.pointer0)) << 12);
+
+            var tblEntry = &table.entries[loc.tableIndex];
+
+            if (tblEntry.isMapped) {
+                Terminal.println("Mapping is at {} is {X}: {}", loc, @bitCast(u32, tblEntry.*), tblEntry);
+                return error.AlreadyMapped;
+            }
+
+            tblEntry.* = Entry{
+                .isMapped = true,
+                .writeProtection = access,
+                .access = .ring0,
+                .enableWriteThroughCaching = false,
+                .disableCaching = false,
+                .wasAccessed = false,
+                .wasWritten = false,
+                .size = .fourKilo,
+                .dontRefreshTLB = false,
+                .userBits = 0,
+                // Hack to workaround #2627
+                .pointer0 = @truncate(u4, (physicalAddress >> 20)),
+                .pointer1 = @intCast(u16, (physicalAddress >> 16)),
+            };
+        }
+    };
+
+    const PageTable = extern struct {
+        entries: [1024]Entry,
+    };
+
+    const PageLocation = struct {
+        directoryIndex: u10,
+        tableIndex: u10,
+    };
+
+    fn addrToLocation(addr: usize) PageLocation {
+        const idx = addr / 4096;
+        return PageLocation{
+            .directoryIndex = @truncate(u10, idx / 1024),
+            .tableIndex = @truncate(u10, idx & 0x3FF),
+        };
+    }
+
+    const WriteProtection = enum(u1) {
+        readOnly = 0,
+        readWrite = 1,
+    };
+
+    const PageAccess = enum(u1) {
+        ring0 = 0,
+        all = 1,
+    };
+
+    const PageSize = enum(u1) {
+        fourKilo = 0,
+        fourMegas = 1,
+    };
+
+    const Entry = packed struct {
+        isMapped: bool,
+        writeProtection: WriteProtection,
+        access: PageAccess,
+        enableWriteThroughCaching: bool,
+        disableCaching: bool,
+        wasAccessed: bool,
+        wasWritten: bool,
+        size: PageSize,
+        dontRefreshTLB: bool,
+        userBits: u3 = 0,
+
+        // magic bug fix for #2627
+        pointer0: u4,
+        pointer1: u16,
+    };
+
+    comptime {
+        std.debug.assert(@sizeOf(Entry) == 4);
+        std.debug.assert(@sizeOf(PageDirectory) == 4096);
+        std.debug.assert(@sizeOf(PageTable) == 4096);
+    }
+};
