@@ -43,6 +43,19 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
                 else => "Unknown",
             });
             Terminal.println("{}", cpu);
+
+            if (cpu.interrupt == 0x0E) {
+                const cr2 = asm volatile ("mov %%cr2, %[cr]"
+                    : [cr] "=r" (-> usize)
+                );
+                const cr3 = asm volatile ("mov %%cr3, %[cr]"
+                    : [cr] "=r" (-> usize)
+                );
+                // zig fmt: off
+                Terminal.println("Page Fault when {1} {0X} from {3}: {2}", cr2, if ((cpu.errorcode & 2) != 0) "writing" else "reading", if ((cpu.errorcode & 1) != 0) "access denied" else "page unmapped", if ((cpu.errorcode & 4) != 0) "userspace" else "kernelspace");
+                // zig fmt: on
+            }
+
             Terminal.resetColors();
 
             while (true) {

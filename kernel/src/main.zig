@@ -227,6 +227,20 @@ fn dumpPMM(msg: []const u8) void {
 }
 
 pub fn main() anyerror!void {
+    Terminal.clear();
+
+    // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
+    const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
+
+    Terminal.print("Multiboot Structure: {*}\r\n", multiboot);
+    inline for (@typeInfo(Multiboot.Structure).Struct.fields) |fld| {
+        if (comptime !std.mem.eql(u8, comptime fld.name, "flags")) {
+            if (@field(flags, fld.name)) {
+                Terminal.print("\t{}\t= {}\r\n", fld.name, @field(multiboot, fld.name));
+            }
+        }
+    }
+
     // Init PMM
 
     // mark everything in the "memmap" as free
@@ -253,7 +267,7 @@ pub fn main() anyerror!void {
     {
         var pos = @ptrToInt(&__start);
         std.debug.assert(std.mem.isAligned(pos, 4096));
-        while (pos < @ptrToInt(&__start)) : (pos += 4096) {
+        while (pos < @ptrToInt(&__end)) : (pos += 4096) {
             pmm_allocator.markPage(pos, .allocated);
         }
     }
@@ -267,29 +281,39 @@ pub fn main() anyerror!void {
     }
     Terminal.println("free memory: {} pages", pmm_allocator.getFreePageCount());
 
-    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
-    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
-    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
-    Terminal.println("pmm_alloc.allocPage() = {}", pmm_allocator.allocPage());
-
-    Terminal.clear();
     {
         Terminal.print("[ ] Initialize gdt...\r");
         GDT.init();
         Terminal.println("[X");
     }
 
-    dumpPMM("pre-pmm");
     var pageDirectory = try vmm_mapper.init();
+
+    // map ourself into memory
+    {
+        var pos = @ptrToInt(&__start);
+        std.debug.assert(std.mem.isAligned(pos, 4096));
+        while (pos < @ptrToInt(&__end)) : (pos += 4096) {
+            try pageDirectory.mapPage(pos, pos, .readWrite);
+        }
+    }
+
+    // map VGA memory
+    {
+        var i: usize = 0xA0000;
+        while (i < 0xC0000) : (i += 0x1000) {
+            try pageDirectory.mapPage(i, i, .readWrite);
+        }
+    }
+
+    Terminal.print("[ ] Enable paging...\r");
+    vmm_mapper.enable_paging();
+    Terminal.println("[X");
 
     {
         Terminal.print("[ ] Initialize idt...\r");
         Interrupts.init();
         Terminal.println("[X");
-
-        // Terminal.print("[ ] Fire Test Interrupt\r");
-        // Interrupts.trigger_isr(45);
-        // Terminal.println("[X");
 
         Interrupts.setIRQHandler(0, handleTimerIRQ);
 
@@ -302,18 +326,6 @@ pub fn main() anyerror!void {
         Terminal.print("[ ] Enable Keyboard...\r");
         Keyboard.init();
         Terminal.println("[X");
-    }
-
-    // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
-    const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
-
-    Terminal.print("Multiboot Structure: {*}\r\n", multiboot);
-    inline for (@typeInfo(Multiboot.Structure).Struct.fields) |fld| {
-        if (comptime !std.mem.eql(u8, comptime fld.name, "flags")) {
-            if (@field(flags, fld.name)) {
-                Terminal.print("\t{}\t= {}\r\n", fld.name, @field(multiboot, fld.name));
-            }
-        }
     }
 
     Terminal.print("VGA init...\r\n");
@@ -348,6 +360,7 @@ pub fn main() anyerror!void {
     Terminal.println("Assembled code successfully!");
     Terminal.println("Memory required: {} bytes!", fba.end_index);
 
+    Terminal.println("Start user code...");
     startTask(.codeRunner);
 }
 
@@ -368,7 +381,7 @@ fn kmain() noreturn {
     }
 }
 
-var kernelStack: [1 << 16]u8 align(16) = undefined;
+var kernelStack: [4096]u8 align(16) = undefined;
 
 var multiboot: *Multiboot.Structure = undefined;
 var multibootMagic: u32 = undefined;
@@ -412,20 +425,36 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
 var pmm_allocator = BitmapAllocator(1 * 1024 * 1024).init();
 
 const vmm_mapper = struct {
-    const startOfMemory = 0x100000; // 1 MB into virtual memory
+    const startOfLinearMemory = 0x40000000; // 1 GB into virtual memory
     var sizeOfMemory = 0; // not initialized
 
     fn init() !*PageDirectory {
         var directory = @intToPtr(*PageDirectory, pmm_allocator.allocPage() orelse return error.OutOfMemory);
         @memset(@ptrCast([*]u8, directory), 0, 4096);
 
-        var pointer = u32(startOfMemory);
-        while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
-            // Terminal.println("Map {X} to {X}", pmm_address, pointer);
-            try directory.mapPage(pointer, pmm_address, .readWrite);
-        }
+        asm volatile ("mov %[ptr], %%cr3"
+            :
+            : [ptr] "r" (directory)
+        );
+
+        // var pointer = u32(startOfMemory);
+        // while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
+        //     // Terminal.println("Map {X} to {X}", pmm_address, pointer);
+        //     try directory.mapPage(pointer, pmm_address, .readWrite);
+        // }
 
         return directory;
+    }
+
+    fn enable_paging() void {
+        var cr0 = asm volatile ("mov %%cr0, %[cr]"
+            : [cr] "=r" (-> u32)
+        );
+        cr0 |= (1 << 31);
+        asm volatile ("mov %[cr], %%cr0"
+            :
+            : [cr] "r" (cr0)
+        );
     }
 
     const PageDirectory = extern struct {
@@ -438,8 +467,7 @@ const vmm_mapper = struct {
             const loc = addrToLocation(virtualAddress);
 
             var dirEntry = &directory.entries[loc.directoryIndex];
-            if(!dirEntry.isMapped)
-            {
+            if (!dirEntry.isMapped) {
                 var tbl = @intToPtr(*allowzero PageTable, pmm_allocator.allocPage() orelse return error.OutOfMemory);
                 @memset(@ptrCast([*]u8, tbl), 0, 4096);
 
@@ -460,6 +488,8 @@ const vmm_mapper = struct {
                     .pointer0 = @truncate(u4, (@ptrToInt(tbl) >> 12)),
                     .pointer1 = @intCast(u16, (@ptrToInt(tbl) >> 16)),
                 };
+
+                std.debug.assert(@ptrToInt(tbl) == (@bitCast(usize, dirEntry.*) & 0xFFFFF000));
             }
 
             var table = @intToPtr(*allowzero PageTable, ((usize(dirEntry.pointer1) << 4) | usize(dirEntry.pointer0)) << 12);
@@ -483,9 +513,16 @@ const vmm_mapper = struct {
                 .dontRefreshTLB = false,
                 .userBits = 0,
                 // Hack to workaround #2627
-                .pointer0 = @truncate(u4, (physicalAddress >> 20)),
+                .pointer0 = @truncate(u4, (physicalAddress >> 12)),
                 .pointer1 = @intCast(u16, (physicalAddress >> 16)),
             };
+
+            std.debug.assert(physicalAddress == (@bitCast(usize, tblEntry.*) & 0xFFFFF000));
+
+            asm volatile ("invlpg %[ptr]"
+                :
+                : [ptr] "m" (virtualAddress)
+            );
         }
     };
 

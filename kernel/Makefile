@@ -5,7 +5,7 @@ QEMU_FLAGS+=\
 	-no-reboot \
 	-no-shutdown \
 	-m 64M \
-	-d guest_errors
+	-d guest_errors#,int,cpu_reset
 
 ZIG_FLAGS=#-Drelease-fast=true
 
