@@ -5,6 +5,28 @@ const Terminal = @import("text-terminal.zig");
 const outportb = io.outb;
 const inportb = io.inb;
 
+pub const VgaMode = enum {
+    mode320x200,
+    mode640x480,
+};
+
+pub const mode = if (@hasDecl(@import("root"), "vga_mode")) @import("root").vga_mode else VgaMode.mode320x200;
+
+pub const Color = switch (mode) {
+    .mode320x200 => u8,
+    .mode640x480 => u4,
+};
+
+pub const width = switch (mode) {
+    .mode320x200 => 320,
+    .mode640x480 => 640,
+};
+
+pub const height = switch (mode) {
+    .mode320x200 => 200,
+    .mode640x480 => 480,
+};
+
 pub fn write_regs(regs: [61]u8) void {
     var index: usize = 0;
     var i: u8 = 0;
@@ -72,7 +94,11 @@ pub fn setPlane(plane: u2) void {
 }
 
 pub fn init() void {
-    write_regs(g_640x480x16);
+    switch (mode) {
+        .mode320x200 => write_regs(g_320x200x256),
+        .mode640x480 => write_regs(g_640x480x16),
+    }
+
     // write_regs(g_320x200x256);
 }
 
@@ -94,30 +120,40 @@ fn vpeekb(off: usize) u8 {
     return get_fb_seg()[off];
 }
 
-pub fn setPixelDirect(x: usize, y: usize, c: u4) void {
-    const wd_in_bytes = 640 / 8;
-    const off = wd_in_bytes * y + x / 8;
-    const px = @truncate(u3, x & 7);
-    var mask: u8 = u8(0x80) >> px;
-    var pmask: u8 = 1;
+pub fn setPixelDirect(x: usize, y: usize, c: Color) void {
+    switch (mode) {
+        .mode320x200 => {
+            // setPlane(@truncate(u2, 0));
+            var segment = get_fb_seg();
+            segment[320 * y + x] = c;
+        },
 
-    comptime var p: usize = 0;
-    inline while (p < 4) : (p += 1) {
-        setPlane(@truncate(u2, p));
-        var segment = get_fb_seg();
-        const src = segment[off];
-        segment[off] = if ((pmask & c) != 0) src | mask else src & ~mask;
-        pmask <<= 1;
+        .mode640x480 => {
+            const wd_in_bytes = 640 / 8;
+            const off = wd_in_bytes * y + x / 8;
+            const px = @truncate(u3, x & 7);
+            var mask: u8 = u8(0x80) >> px;
+            var pmask: u8 = 1;
+
+            comptime var p: usize = 0;
+            inline while (p < 4) : (p += 1) {
+                setPlane(@truncate(u2, p));
+                var segment = get_fb_seg();
+                const src = segment[off];
+                segment[off] = if ((pmask & c) != 0) src | mask else src & ~mask;
+                pmask <<= 1;
+            }
+        },
     }
 }
 
-var backbuffer: [480][640]u4 = undefined;
+var backbuffer: [height][width]Color = undefined;
 
-pub fn setPixel(x: usize, y: usize, c: u4) void {
+pub fn setPixel(x: usize, y: usize, c: Color) void {
     backbuffer[y][x] = c;
 }
 
-pub fn getPixel(x: usize, y: usize) u4 {
+pub fn getPixel(x: usize, y: usize) Color {
     return backbuffer[y][x];
 }
 
@@ -125,38 +161,45 @@ pub fn swapBuffers() void {
     @setRuntimeSafety(false);
     @setCold(false);
 
-    // const bytes_per_line = 640 / 8;
+    switch (mode) {
+        .mode320x200 => {
+            @intToPtr(*[height][width]Color, 0xA0000).* = backbuffer;
+        },
+        .mode640x480 => {
 
-    var plane: usize = 0;
-    while (plane < 4) : (plane += 1) {
-        const plane_mask: u8 = u8(1) << @truncate(u3, plane);
-        setPlane(@truncate(u2, plane));
+            // const bytes_per_line = 640 / 8;
+            var plane: usize = 0;
+            while (plane < 4) : (plane += 1) {
+                const plane_mask: u8 = u8(1) << @truncate(u3, plane);
+                setPlane(@truncate(u2, plane));
 
-        var segment = get_fb_seg();
+                var segment = get_fb_seg();
 
-        var offset: usize = 0;
+                var offset: usize = 0;
 
-        var y: usize = 0;
-        while (y < 480) : (y += 1) {
-            var x: usize = 0;
-            while (x < 640) : (x += 8) {
-                // const offset = bytes_per_line * y + (x / 8);
-                var bits: u8 = 0;
+                var y: usize = 0;
+                while (y < 480) : (y += 1) {
+                    var x: usize = 0;
+                    while (x < 640) : (x += 8) {
+                        // const offset = bytes_per_line * y + (x / 8);
+                        var bits: u8 = 0;
 
-                // unroll for maximum fastness
-                comptime var px: usize = 0;
-                inline while (px < 8) : (px += 1) {
-                    const mask = u8(0x80) >> px;
-                    const index = backbuffer[y][x + px];
-                    if ((index & plane_mask) != 0) {
-                        bits |= mask;
+                        // unroll for maximum fastness
+                        comptime var px: usize = 0;
+                        inline while (px < 8) : (px += 1) {
+                            const mask = u8(0x80) >> px;
+                            const index = backbuffer[y][x + px];
+                            if ((index & plane_mask) != 0) {
+                                bits |= mask;
+                            }
+                        }
+
+                        segment[offset] = bits;
+                        offset += 1;
                     }
                 }
-
-                segment[offset] = bits;
-                offset += 1;
             }
-        }
+        },
     }
 }
 

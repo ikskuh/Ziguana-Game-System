@@ -7,19 +7,20 @@ QEMU_FLAGS+=\
 	-m 64M \
 	-d guest_errors#,int,cpu_reset
 
-ZIG_FLAGS=#-Drelease-fast=true
+ZIG_FLAGS+=#-Drelease-fast=true
 
 all: boot.img
 
 run: boot.img
-	qemu-system-i386 $(QEMU_FLAGS) -hda $<
+	qemu-system-i386 $(QEMU_FLAGS) -fda $<
 
 boot.img: zig-cache/bin/kernel syslinux.cfg
-	fallocate -l 32M $@
+	strip $<
+	fallocate -l 1440K $@
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
 	mmd -i $@ ::/syslinux
-	mcopy -i $@ /usr/lib/syslinux/bios/* ::/syslinux
+	mcopy -i $@ /usr/lib/syslinux/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 

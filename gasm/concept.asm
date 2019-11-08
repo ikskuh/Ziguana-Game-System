@@ -18,12 +18,13 @@
 .def DOWN,  0x10050 # escaped0 scancode 80 ↓
 .def RIGHT, 0x1004D # escaped0 scancode 77 →
 .def SPACE, 0x00039 # space
+
 init:
 	jmp resetGame
 
 resetGame:
-	mov [playerX], 320
-	mov [playerY], 240
+	mov [playerX], 160
+	mov [playerY], 100
 	mov [playerDir], 4 # stop
 
 	# clear screen
@@ -34,11 +35,11 @@ resetGame:
 .loopX:
 	setpix r0, r1, BGCOLOR
 	add r0, 1
-	cmp r0, 640
+	cmp r0, 320
 	jnz .loopX
 	
 	add r1, 1
-	cmp r1, 480
+	cmp r1, 200
 	jnz .loopY # jump non-zero
 
 	# Refresh screen
@@ -121,12 +122,12 @@ loseGame:
 .loopX:
 	setpix r0, r1, RED
 	add r0, 1
-	cmp r0, 640
+	cmp r0, 320
 	jnz .loopX
 
 	# this takes sufficient time
 	mov r2, r1
-	and r2, 0x0F
+	and r2, 0x01
 	cmp r2, 0
 	jnz .skipFlush
 
@@ -134,7 +135,7 @@ loseGame:
 .skipFlush:
 	
 	add r1, 1
-	cmp r1, 480
+	cmp r1, 200
 	jnz .loopY # jump non-zero
 
 	flushpix

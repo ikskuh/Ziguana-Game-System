@@ -7,6 +7,7 @@ const VGA = @import("vga.zig");
 const GDT = @import("gdt.zig");
 const Interrupts = @import("interrupts.zig");
 const Keyboard = @import("keyboard.zig");
+const SerialPort = @import("serial-port.zig");
 
 const Assembler = @import("assembler.zig");
 
@@ -98,7 +99,7 @@ const VgaApi = enum {
 };
 var vgaApi: VgaApi = .immediate;
 
-pub const enable_assembler_tracing = true;
+pub const enable_assembler_tracing = false;
 
 pub var currentAssemblerLine: ?usize = null;
 
@@ -233,6 +234,8 @@ fn dumpPMM(msg: []const u8) void {
 }
 
 pub fn main() anyerror!void {
+    SerialPort.init(SerialPort.COM1, 9600, .none, .eight);
+
     Terminal.clear();
 
     // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
@@ -349,10 +352,10 @@ pub fn main() anyerror!void {
 
     {
         var y: usize = 0;
-        while (y < 480) : (y += 1) {
+        while (y < VGA.height) : (y += 1) {
             var x: usize = 0;
-            while (x < 640) : (x += 1) {
-                VGA.setPixel(x, y, 0xF);
+            while (x < VGA.width) : (x += 1) {
+                VGA.setPixel(x, y, @truncate(u4, x + y));
             }
         }
     }
@@ -372,6 +375,20 @@ pub fn main() anyerror!void {
 
     Terminal.println("Start user code...");
     startTask(.codeRunner);
+
+    // var time: usize = 0;
+    // while (true) {
+    //     var y: usize = 0;
+    //     while (y < VGA.height) : (y += 1) {
+    //         var x: usize = 0;
+    //         while (x < VGA.width) : (x += 1) {
+    //             VGA.setPixel(x, y, @truncate(u4, x + y + time));
+    //         }
+    //     }
+    //     VGA.swapBuffers();
+
+    //     time += 1;
+    // }
 }
 
 fn kmain() noreturn {
@@ -418,20 +435,65 @@ export nakedcc fn _start() noreturn {
     @newStackCall(kernelStack[0..], kmain);
 }
 
+const SerialOutStream = struct {
+    const This = @This();
+    fn print(_: This, comptime fmt: []const u8, args: ...) error{Never}!void {
+        Terminal.print(fmt, args);
+    }
+
+    fn write(_: This, text: []const u8) error{Never}!void {
+        Terminal.print("{}", text);
+    }
+
+    fn writeByte(_: This, byte: u8) error{Never}!void {
+        Terminal.print("{c}", byte);
+    }
+};
+
+const serial_out_stream = SerialOutStream{};
+
+fn printLineFromFile(out_stream: var, line_info: std.debug.LineInfo) anyerror!void {
+    Terminal.println("TODO print line from the file\n");
+}
+
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     Interrupts.disableExternalInterrupts();
     Terminal.setColors(.white, .red);
     Terminal.println("\r\n\r\nKERNEL PANIC: {}\r\n", msg);
 
-    Terminal.println("Registers:");
-    for (registers) |reg, i| {
-        Terminal.println("r{} = {}", i, reg);
+    // Terminal.println("Registers:");
+    // for (registers) |reg, i| {
+    //     Terminal.println("r{} = {}", i, reg);
+    // }
+
+    const first_trace_addr = @returnAddress();
+
+    const dwarf_info: ?*std.debug.DwarfInfo = getSelfDebugInfo() catch |err| blk: {
+        Terminal.println("unable to get debug info: {}\n", @errorName(err));
+        break :blk null;
+    };
+    var it = std.debug.StackIterator.init(first_trace_addr);
+    while (it.next()) |return_address| {
+        Terminal.println("Stack: {x}", return_address);
+        if (dwarf_info) |di| {
+            std.debug.printSourceAtAddressDwarf(
+                di,
+                serial_out_stream,
+                return_address,
+                true, // tty color on
+                printLineFromFile,
+            ) catch |err| {
+                Terminal.println("missed a stack frame: {}\n", @errorName(err));
+                continue;
+            };
+        }
     }
 
-    Terminal.println("Stack Trace: 0x{X}", @returnAddress());
-    Terminal.println("{}", error_return_trace);
+    haltForever();
+}
 
+fn haltForever() noreturn {
     while (true) {
         Interrupts.disableExternalInterrupts();
         asm volatile ("hlt");
@@ -447,6 +509,8 @@ const vmm_mapper = struct {
     var sizeOfUserspace: usize = 0; // not initialized
 
     fn getUserSpace() []u8 {
+        if (sizeOfUserspace == 0)
+            @panic("Userspace is not initialized!");
         return @intToPtr([*]u8, startOfUserspace)[0..sizeOfUserspace];
     }
 
@@ -604,3 +668,91 @@ const vmm_mapper = struct {
         std.debug.assert(@sizeOf(PageTable) == 4096);
     }
 };
+
+var kernel_panic_allocator_bytes: [4 * 1024 * 1024]u8 = undefined;
+var kernel_panic_allocator_state = std.heap.FixedBufferAllocator.init(kernel_panic_allocator_bytes[0..]);
+const kernel_panic_allocator = &kernel_panic_allocator_state.allocator;
+
+extern var __debug_info_start: u8;
+extern var __debug_info_end: u8;
+extern var __debug_abbrev_start: u8;
+extern var __debug_abbrev_end: u8;
+extern var __debug_str_start: u8;
+extern var __debug_str_end: u8;
+extern var __debug_line_start: u8;
+extern var __debug_line_end: u8;
+extern var __debug_ranges_start: u8;
+extern var __debug_ranges_end: u8;
+
+fn dwarfSectionFromSymbolAbs(start: *u8, end: *u8) std.debug.DwarfInfo.Section {
+    return std.debug.DwarfInfo.Section{
+        .offset = 0,
+        .size = @ptrToInt(end) - @ptrToInt(start),
+    };
+}
+
+fn dwarfSectionFromSymbol(start: *u8, end: *u8) std.debug.DwarfInfo.Section {
+    return std.debug.DwarfInfo.Section{
+        .offset = @ptrToInt(start),
+        .size = @ptrToInt(end) - @ptrToInt(start),
+    };
+}
+
+fn getSelfDebugInfo() !*std.debug.DwarfInfo {
+    const S = struct {
+        var have_self_debug_info = false;
+        var self_debug_info: std.debug.DwarfInfo = undefined;
+
+        var in_stream_state = std.io.InStream(anyerror){ .readFn = readFn };
+        var in_stream_pos: usize = 0;
+        const in_stream = &in_stream_state;
+
+        fn readFn(self: *std.io.InStream(anyerror), buffer: []u8) anyerror!usize {
+            const ptr = @intToPtr([*]const u8, in_stream_pos);
+            @memcpy(buffer.ptr, ptr, buffer.len);
+            in_stream_pos += buffer.len;
+            return buffer.len;
+        }
+
+        const SeekableStream = std.io.SeekableStream(anyerror, anyerror);
+        var seekable_stream_state = SeekableStream{
+            .seekToFn = seekToFn,
+            .seekByFn = seekForwardFn,
+
+            .getPosFn = getPosFn,
+            .getEndPosFn = getEndPosFn,
+        };
+        const seekable_stream = &seekable_stream_state;
+
+        fn seekToFn(self: *SeekableStream, pos: u64) anyerror!void {
+            in_stream_pos = @intCast(usize, pos);
+        }
+        fn seekForwardFn(self: *SeekableStream, pos: i64) anyerror!void {
+            in_stream_pos = @bitCast(usize, @bitCast(isize, in_stream_pos) +% @intCast(isize, pos));
+        }
+        fn getPosFn(self: *SeekableStream) anyerror!u64 {
+            return in_stream_pos;
+        }
+        fn getEndPosFn(self: *SeekableStream) anyerror!u64 {
+            return @ptrToInt(&__debug_ranges_end);
+        }
+    };
+    if (S.have_self_debug_info)
+        return &S.self_debug_info;
+
+    S.self_debug_info = std.debug.DwarfInfo{
+        .dwarf_seekable_stream = S.seekable_stream,
+        .dwarf_in_stream = S.in_stream,
+        .endian = builtin.Endian.Little,
+        .debug_info = dwarfSectionFromSymbol(&__debug_info_start, &__debug_info_end),
+        .debug_abbrev = dwarfSectionFromSymbolAbs(&__debug_abbrev_start, &__debug_abbrev_end),
+        .debug_str = dwarfSectionFromSymbolAbs(&__debug_str_start, &__debug_str_end),
+        .debug_line = dwarfSectionFromSymbol(&__debug_line_start, &__debug_line_end),
+        .debug_ranges = dwarfSectionFromSymbolAbs(&__debug_ranges_start, &__debug_ranges_end),
+        .abbrev_table_list = undefined,
+        .compile_unit_list = undefined,
+        .func_list = undefined,
+    };
+    try std.debug.openDwarfDebugInfo(&S.self_debug_info, kernel_panic_allocator);
+    return &S.self_debug_info;
+}
