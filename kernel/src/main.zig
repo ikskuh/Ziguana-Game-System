@@ -23,15 +23,12 @@ fn handleTimerIRQ(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
     return cpu;
 }
 
-export var usercode: [4096]u8 align(16) = undefined;
 var usercodeValid: bool = false;
 
 // 1 MB Fixed buffer for debug purposes
 var fixedBufferForAllocation: [1 * 1024 * 1024]u8 align(16) = undefined;
 
 var registers: [16]u32 = [_]u32{0} ** 16;
-
-pub const enable_assembler_tracing = false;
 
 pub fn getRegisterAddress(register: u4) u32 {
     return @ptrToInt(&registers[register]);
@@ -101,16 +98,24 @@ const VgaApi = enum {
 };
 var vgaApi: VgaApi = .immediate;
 
+pub const enable_assembler_tracing = true;
+
+pub var currentAssemblerLine: ?usize = null;
+
 pub fn debugCall(cpu: *Interrupts.CpuState) void {
     if (!enable_live_tracing)
         return;
-    Terminal.println("-----------------------------");
-    Terminal.println("Line: {}", @intToPtr(*u32, cpu.eip).*);
-    Terminal.println("CPU:\r\n{}", cpu);
-    Terminal.println("Registers:");
-    for (registers) |reg, i| {
-        Terminal.println("r{} = {}", i, reg);
-    }
+
+    currentAssemblerLine = @intToPtr(*u32, cpu.eip).*;
+
+    // Terminal.println("-----------------------------");
+    // Terminal.println("Line: {}", currentAssemblerLine);
+    // Terminal.println("CPU:\r\n{}", cpu);
+    // Terminal.println("Registers:");
+    // for (registers) |reg, i| {
+    //     Terminal.println("r{} = {}", i, reg);
+    // }
+
     // skip 4 bytes after interrupt. this is the assembler line number!
     cpu.eip += 4;
 }
@@ -136,7 +141,8 @@ extern fn editorNotImplementedYet() noreturn {
 extern fn executeUsercode() noreturn {
     // start the user-compiled script
     if (usercodeValid) {
-        asm volatile ("jmp usercode");
+        // jump into user space
+        asm volatile ("jmp 0x40000000");
         unreachable;
     } else {
         startTask(.shell);
@@ -306,6 +312,10 @@ pub fn main() anyerror!void {
         }
     }
 
+    try vmm_mapper.create_userspace(pageDirectory);
+
+    Terminal.println("[x] Fill userspace: {Bi}", vmm_mapper.sizeOfUserspace);
+
     Terminal.print("[ ] Enable paging...\r");
     vmm_mapper.enable_paging();
     Terminal.println("[X");
@@ -354,7 +364,7 @@ pub fn main() anyerror!void {
 
     // foo
     usercodeValid = false;
-    try Assembler.assemble(&fba.allocator, developSource, usercode[0..], null);
+    try Assembler.assemble(&fba.allocator, developSource, vmm_mapper.getUserSpace(), null);
     usercodeValid = true;
 
     Terminal.println("Assembled code successfully!");
@@ -371,7 +381,14 @@ fn kmain() noreturn {
 
     main() catch |err| {
         Terminal.setColors(.white, .red);
-        Terminal.print("\r\n\r\nmain() returned {}!", err);
+        Terminal.println("\r\n\r\nmain() returned {}!", err);
+        if (@errorReturnTrace()) |trace| {
+            for (trace.instruction_addresses) |addr, i| {
+                if (i >= trace.index)
+                    break;
+                Terminal.println("{X: >8}", addr);
+            }
+        }
     };
 
     Terminal.println("system haltet, shut down now!");
@@ -425,8 +442,13 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
 var pmm_allocator = BitmapAllocator(1 * 1024 * 1024).init();
 
 const vmm_mapper = struct {
-    const startOfLinearMemory = 0x40000000; // 1 GB into virtual memory
-    var sizeOfMemory = 0; // not initialized
+    // WARNING: Change assembler jmp according to this!
+    const startOfUserspace = 0x40000000; // 1 GB into virtual memory
+    var sizeOfUserspace: usize = 0; // not initialized
+
+    fn getUserSpace() []u8 {
+        return @intToPtr([*]u8, startOfUserspace)[0..sizeOfUserspace];
+    }
 
     fn init() !*PageDirectory {
         var directory = @intToPtr(*PageDirectory, pmm_allocator.allocPage() orelse return error.OutOfMemory);
@@ -437,13 +459,16 @@ const vmm_mapper = struct {
             : [ptr] "r" (directory)
         );
 
-        // var pointer = u32(startOfMemory);
-        // while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
-        //     // Terminal.println("Map {X} to {X}", pmm_address, pointer);
-        //     try directory.mapPage(pointer, pmm_address, .readWrite);
-        // }
-
         return directory;
+    }
+
+    fn create_userspace(directory: *PageDirectory) !void {
+        var pointer = u32(startOfUserspace);
+        while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
+            // Terminal.println("Map {X} to {X}", pmm_address, pointer);
+            try directory.mapPage(pointer, pmm_address, .readWrite);
+            sizeOfUserspace += 0x1000;
+        }
     }
 
     fn enable_paging() void {
@@ -470,8 +495,6 @@ const vmm_mapper = struct {
             if (!dirEntry.isMapped) {
                 var tbl = @intToPtr(*allowzero PageTable, pmm_allocator.allocPage() orelse return error.OutOfMemory);
                 @memset(@ptrCast([*]u8, tbl), 0, 4096);
-
-                Terminal.println("Alloc page entry: {*}", tbl);
 
                 dirEntry.* = Entry{
                     .isMapped = true,

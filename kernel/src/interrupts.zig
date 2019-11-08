@@ -56,6 +56,10 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
                 // zig fmt: on
             }
 
+            if (@import("root").currentAssemblerLine) |line| {
+                Terminal.println("Assembler Line: {}", line);
+            }
+
             Terminal.resetColors();
 
             while (true) {
