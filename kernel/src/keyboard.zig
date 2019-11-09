@@ -56,6 +56,21 @@ fn pushScancode(set: ScancodeSet, scancode: u16, isRelease: bool) void {
     Terminal.println("[kbd:{}/{}/{}]", set, scancode, if (isRelease) "R" else "P");
 }
 
+pub const FKey = enum {
+    F1,
+    F2,
+    F3,
+    F4,
+    F5,
+    F6,
+    F7,
+    F8,
+    F9,
+    F10,
+    F11,
+    F12,
+};
+
 const IrqState = enum {
     default,
     receiveE0,
@@ -67,13 +82,40 @@ var irqState: IrqState = .default;
 var e1Byte0: u8 = undefined;
 
 fn kbdIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
+    var newCpu = cpu;
+
     const inputData = io.inb(0x60);
     irqState = switch (irqState) {
         .default => switch (inputData) {
             0xE0 => IrqState.receiveE0,
             0xE1 => IrqState.receiveE1_Byte0,
             else => blk: {
-                pushScancode(.default, inputData & 0x7F, (inputData & 0x80 != 0));
+                const scancode = inputData & 0x7F;
+                const isRelease = (inputData & 0x80 != 0);
+
+                switch (scancode) {
+                    59...68, 87, 88 => {
+                        if (isRelease)
+                            return cpu;
+
+                        return @import("root").handleFKey(cpu, switch (scancode) {
+                            59 => FKey.F1,
+                            60 => FKey.F2,
+                            61 => FKey.F3,
+                            62 => FKey.F4,
+                            63 => FKey.F5,
+                            64 => FKey.F6,
+                            65 => FKey.F7,
+                            66 => FKey.F8,
+                            67 => FKey.F9,
+                            68 => FKey.F10,
+                            87 => FKey.F11,
+                            88 => FKey.F12,
+                            else => unreachable,
+                        });
+                    },
+                    else => pushScancode(.default, scancode, isRelease),
+                }
 
                 break :blk IrqState.default;
             },
@@ -100,7 +142,7 @@ fn kbdIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
         },
     };
 
-    return cpu;
+    return newCpu;
 }
 
 fn mouseIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {

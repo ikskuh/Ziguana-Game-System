@@ -136,17 +136,31 @@ const TaskId = enum {
 };
 
 extern fn editorNotImplementedYet() noreturn {
-    @panic("This editor is not implemented yet!");
+    Terminal.println("This editor is not implemented yet!");
+    while (true) {
+        // wait for interrupt
+        asm volatile ("hlt");
+    }
 }
 
 extern fn executeUsercode() noreturn {
-    // start the user-compiled script
-    if (usercodeValid) {
-        // jump into user space
+    Terminal.println("Start assembling code...");
+
+    var fba = std.heap.FixedBufferAllocator.init(fixedBufferForAllocation[0..]);
+
+    if (Assembler.assemble(&fba.allocator, developSource, vmm_mapper.getUserSpace(), null)) {
+        Terminal.println("Assembled code successfully!");
+        Terminal.println("Memory required: {} bytes!", fba.end_index);
+
+        Terminal.println("Start user code...");
         asm volatile ("jmp 0x40000000");
         unreachable;
-    } else {
-        startTask(.shell);
+    } else |err| {
+        Terminal.println("Failed to assemble user code: {}", err);
+        while (true) {
+            // wait for interrupt
+            asm volatile ("hlt");
+        }
     }
 }
 
@@ -164,9 +178,9 @@ extern fn executeTilemapEditor() noreturn {
         }
 
         var y: usize = 0;
-        while (y < 480) : (y += 1) {
+        while (y < VGA.height) : (y += 1) {
             var x: usize = 0;
-            while (x < 640) : (x += 1) {
+            while (x < VGA.width) : (x += 1) {
                 // c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
                 const c = if (y > (systemTicks % 480)) color else 0;
                 VGA.setPixel(x, y, c);
@@ -211,27 +225,52 @@ const taskList = TaskList.initMap(([_]TaskList.KV{
     },
 }));
 
+var userStack: [8192]u8 align(16) = undefined;
+
+pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.CpuState {
+    const Helper = struct {
+        fn createTask(stack: []u8, oldCpu: *Interrupts.CpuState, id: TaskId) *Interrupts.CpuState {
+            var newCpu = @ptrCast(*Interrupts.CpuState, stack.ptr + stack.len - @sizeOf(Interrupts.CpuState));
+            newCpu.* = Interrupts.CpuState{
+                .eax = 0,
+                .ebx = 0,
+                .ecx = 0,
+                .edx = 0,
+                .esi = 0,
+                .edi = 0,
+                .ebp = 0,
+
+                .eip = @ptrToInt(taskList.at(id).entryPoint),
+                .cs = 0x08,
+                .eflags = 0x202,
+
+                .interrupt = 0,
+                .errorcode = 0,
+                .esp = 0,
+                .ss = 0,
+            };
+            return newCpu;
+        }
+    };
+
+    var stack = userStack[0..];
+    return switch (key) {
+        .F1 => Helper.createTask(stack, cpu, .shell),
+        .F2 => Helper.createTask(stack, cpu, .codeEditor),
+        .F3 => Helper.createTask(stack, cpu, .spriteEditor),
+        .F4 => Helper.createTask(stack, cpu, .tilemapEditor),
+        .F5 => Helper.createTask(stack, cpu, .codeRunner),
+
+        else => cpu,
+    };
+}
+
 fn startTask(task: TaskId) noreturn {
     taskList.at(task).entryPoint();
 }
 
 extern const __start: u8;
 extern const __end: u8;
-
-fn dumpPMM(msg: []const u8) void {
-    Terminal.println("{}:", msg);
-    for (pmm_allocator.bitmap) |bits, i| {
-        if (i < 20) {
-            comptime var j = 0;
-            inline while (j < 32) : (j += 1) {
-                Terminal.print("{}", (bits >> j) & 1);
-            }
-            if (i % 4 == 3) {
-                Terminal.println("");
-            }
-        }
-    }
-}
 
 pub fn main() anyerror!void {
     SerialPort.init(SerialPort.COM1, 9600, .none, .eight);
@@ -361,34 +400,8 @@ pub fn main() anyerror!void {
     }
 
     VGA.swapBuffers();
-    Terminal.println("Start assembling code...");
 
-    var fba = std.heap.FixedBufferAllocator.init(fixedBufferForAllocation[0..]);
-
-    // foo
-    usercodeValid = false;
-    try Assembler.assemble(&fba.allocator, developSource, vmm_mapper.getUserSpace(), null);
-    usercodeValid = true;
-
-    Terminal.println("Assembled code successfully!");
-    Terminal.println("Memory required: {} bytes!", fba.end_index);
-
-    Terminal.println("Start user code...");
     startTask(.codeRunner);
-
-    // var time: usize = 0;
-    // while (true) {
-    //     var y: usize = 0;
-    //     while (y < VGA.height) : (y += 1) {
-    //         var x: usize = 0;
-    //         while (x < VGA.width) : (x += 1) {
-    //             VGA.setPixel(x, y, @truncate(u4, x + y + time));
-    //         }
-    //     }
-    //     VGA.swapBuffers();
-
-    //     time += 1;
-    // }
 }
 
 fn kmain() noreturn {
