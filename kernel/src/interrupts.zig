@@ -11,6 +11,8 @@ pub fn setIRQHandler(irq: u4, handler: ?InterruptHandler) void {
 }
 
 export fn handle_interrupt(_cpu: *CpuState) *CpuState {
+    const Root = @import("root");
+
     var cpu = _cpu;
     switch (cpu.interrupt) {
         0x00...0x1F => {
@@ -84,8 +86,13 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
         },
         0x30 => {
             // assembler debug call
-            @import("root").debugCall(cpu);
+            Root.debugCall(cpu);
         },
+        0x40 => return Root.switchTask(.shell),
+        0x41 => return Root.switchTask(.codeEditor),
+        0x42 => return Root.switchTask(.spriteEditor),
+        0x43 => return Root.switchTask(.tilemapEditor),
+        0x44 => return Root.switchTask(.codeRunner),
         else => {
             Terminal.println("Unhandled interrupt:\r\n{}", cpu);
             while (true) {

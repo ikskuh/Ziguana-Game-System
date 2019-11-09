@@ -127,7 +127,7 @@ const Task = struct {
     entryPoint: extern fn () noreturn = undefined,
 };
 
-const TaskId = enum {
+pub const TaskId = enum {
     shell,
     codeEditor,
     spriteEditor,
@@ -228,8 +228,19 @@ const taskList = TaskList.initMap(([_]TaskList.KV{
 var userStack: [8192]u8 align(16) = undefined;
 
 pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.CpuState {
+    return switch (key) {
+        .F1 => switchTask(.shell),
+        .F2 => switchTask(.codeEditor),
+        .F3 => switchTask(.spriteEditor),
+        .F4 => switchTask(.tilemapEditor),
+        .F5 => switchTask(.codeRunner),
+        else => cpu,
+    };
+}
+
+pub fn switchTask(task: TaskId) *Interrupts.CpuState {
     const Helper = struct {
-        fn createTask(stack: []u8, oldCpu: *Interrupts.CpuState, id: TaskId) *Interrupts.CpuState {
+        fn createTask(stack: []u8, id: TaskId) *Interrupts.CpuState {
             var newCpu = @ptrCast(*Interrupts.CpuState, stack.ptr + stack.len - @sizeOf(Interrupts.CpuState));
             newCpu.* = Interrupts.CpuState{
                 .eax = 0,
@@ -254,19 +265,7 @@ pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.Cpu
     };
 
     var stack = userStack[0..];
-    return switch (key) {
-        .F1 => Helper.createTask(stack, cpu, .shell),
-        .F2 => Helper.createTask(stack, cpu, .codeEditor),
-        .F3 => Helper.createTask(stack, cpu, .spriteEditor),
-        .F4 => Helper.createTask(stack, cpu, .tilemapEditor),
-        .F5 => Helper.createTask(stack, cpu, .codeRunner),
-
-        else => cpu,
-    };
-}
-
-fn startTask(task: TaskId) noreturn {
-    taskList.at(task).entryPoint();
+    return Helper.createTask(stack, task);
 }
 
 extern const __start: u8;
@@ -401,7 +400,8 @@ pub fn main() anyerror!void {
 
     VGA.swapBuffers();
 
-    startTask(.codeRunner);
+    asm volatile ("int $0x40");
+    unreachable;
 }
 
 fn kmain() noreturn {
