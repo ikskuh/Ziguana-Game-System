@@ -14,9 +14,6 @@ to the PICO-8, LIKO-12 or TIC-80.
 		- Uses "slots": Every slot contains a full floppy disk image
 - User can program its projects via [GASM](#GASM) language
 
-
-
-
 ## GASM
 The *Game Assembly* language is a fake assembly language that
 behaves similar to x86 asm. It supports not only generic
@@ -97,6 +94,14 @@ Note: `*x` means that `x` may be modified.
 
 - `name:` defines a global label "name"
 - `.name:` defines a local label "name" that can only be used/references between to global labels.
+
+## Screenshots
+
+**Rendering text in VGA 256 color mode:**
+![https://mq32.de/public/91d1ab44ba267c5b94563e6d7d308c0232ce964c.png]
+
+**Playing a nice game of snake:**
+![https://mq32.de/public/4367caedb0616bf483852f55b315db3d361bb6aa.png]
 
 ## TODO List
 
