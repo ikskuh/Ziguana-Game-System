@@ -12,9 +12,18 @@ ZIG_FLAGS+=#-Drelease-fast=true
 all: boot.img
 
 run: boot.img
-	qemu-system-i386 $(QEMU_FLAGS) -fda $<
+	qemu-system-i386 $(QEMU_FLAGS) -hda $<
 
 boot.img: zig-cache/bin/kernel syslinux.cfg
+	fallocate -l 20M $@
+	mkfs.vfat -n RETROS $@
+	syslinux -a $@
+	mmd -i $@ ::/syslinux
+	mcopy -i $@ /usr/lib/syslinux/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
+	mcopy -i $@ syslinux.cfg ::/syslinux
+	mcopy -i $@ zig-cache/bin/kernel ::
+
+floopy.img: zig-cache/bin/kernel syslinux.cfg
 	strip $<
 	fallocate -l 1440K $@
 	mkfs.vfat -n RETROS $@

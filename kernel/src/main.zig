@@ -179,19 +179,39 @@ const stdfont = @bitCast([128]Glyph, @embedFile("stdfont.bin"));
 extern fn executeCodeEditor() noreturn {
     var font = stdfont;
 
-    const text = "Hello, World!";
+    const text = developSource;
 
-    for (text) |c, i| {
+    var col: usize = 0;
+    var row: usize = 0;
+
+    for (text) |c| {
+        if (c == '\n') {
+            col = 1000000; // definitly "out of screen"
+            continue;
+        } else if (c == '\t') {
+            col = (col + 4) & 0xFFFF6;
+            continue;
+        }
+
+        if (col >= VGA.width / 6) {
+            col = 0;
+            row += 1;
+            if (row >= 25)
+                break;
+        }
+
+        const safe_c = if (c < 128) c else '?';
         var y: u3 = 0;
         while (y < 7) : (y += 1) {
             var x: u3 = 0;
             while (x < 6) : (x += 1) {
-                VGA.setPixel(6 * (i % 50) + x, 8 * (i / 50) + y, switch (font[c].getPixel(x, y)) {
-                    0 => VGA.Color(0x1F),
-                    1 => VGA.Color(0x0),
+                VGA.setPixel(6 * col + x, 8 * row + y, switch (font[safe_c].getPixel(x, y)) {
+                    0 => VGA.Color(0x0),
+                    1 => VGA.Color(0x1F),
                 });
             }
         }
+        col += 1;
     }
 
     VGA.swapBuffers();
