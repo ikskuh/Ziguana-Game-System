@@ -1,0 +1,89 @@
+# Scancodes for german layout
+# Scancode	Enum	(lower)ASCII	(upper)ASCII
+1	Escape	\1B
+2	One	1	!
+3	Two	2	"	²
+4	Three	3	§	³
+5	Four	4	$
+6	Five	5	%
+7	Six	6	&
+8	Seven	7	/	{
+9	Eight	8	(	[
+10	Nine	9	)	]
+11	Zero	0	=	}
+12	SZ	ß	?	\
+13	Tick	´	`
+14	Backspace	\08
+15	Tabulator	\0B
+16	Q	q	Q	@
+17	W	w	W
+18	E	e	E	€
+19	R	r	R
+20	T	t	T
+21	Z	z	Z
+22	U	u	U
+23	I	i	I
+24	O	o	O
+25	P	p	P
+26	UmlU	ü	Ü
+27	Plus	+	*	~
+28	Enter	\0A
+29	LeftControl
+30	A	a	A
+31	S	s	S
+32	D	d	D
+33	F	f	F
+34	G	g	G
+35	H	h	H
+36	J	j	J
+37	K	k	K
+38	L	l	L
+39	UmlO	ö	Ö
+40	UmlA	ä	Ä
+41	Circumflex	^	°
+42	LeftShift
+43	Hash	#	'
+44	Y	y	Y
+45	X	x	X
+46	C	c	C
+47	V	v	V
+48	B	b	B
+49	N	n	N
+50	M	m	M	µ
+51	Comma	,	;
+52	Dot	.	:
+53	Minus	-	_
+# 54	
+55	NumpadMul	*	*
+56	LeftAlt
+# WARNING: THIS IS SPACE CHARACTER!
+57	Space	 
+# WARNING: END OF SPACE CHARACTER!
+58	CapsLock
+59	F1
+60	F2
+61	F3
+62	F4
+63	F5
+64	F6
+65	F7
+66	F8
+67	F9
+68	F10
+69	NumpadLock
+71	Numpad7	7	7
+72	Numpad8	8	8
+73	Numpad9	9	9
+74	NumpadMinus	-	-
+75	Numpad4	4	4
+76	Numpad5	5	5
+77	Numpad6	6	6
+78	NumpadPlus	+	+
+79	Numpad1	1	1
+80	Numpad2	2	2
+81	Numpad3	3	3
+82	Numpad0	0	0
+83	NumpadDot	.	.
+86		<	>	|
+87	F11
+88	F12

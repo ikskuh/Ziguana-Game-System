@@ -24,14 +24,23 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-zig-cache/bin/kernel:
+zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin
 	zig build $(ZIG_FLAGS)
 
 zig-cache/bin/assembler:
 	zig build # -Drelease-fast=true
 
+src/stdfont.bin: ../data/font_8x8.png aux/fontconv.exe
+	mono aux/fontconv.exe $< $@
+
+src/stdkbd_default.bin: ../data/kbd_ger_std.txt aux/mkkeymap.exe
+	mono aux/mkkeymap.exe $< $@
+
 assembler-test: ./zig-cache/bin/assembler
 	./zig-cache/bin/assembler
 	ndisasm -b32 -o 0x200000 /tmp/develop.gasm | head -n200
-	
+
+aux/%.exe: aux/%.cs
+	mcs -reference:System.Drawing.dll -out:$@ $^
+
 .PHONY: zig-cache/bin/kernel zig-cache/bin/assembler assembler-test

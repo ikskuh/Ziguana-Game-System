@@ -26,6 +26,7 @@ pub fn init() void {
 pub const KeyEvent = struct {
     set: ScancodeSet,
     scancode: u16,
+    char: ?u8,
 };
 
 var foo = u32(0);
@@ -44,16 +45,46 @@ const ScancodeSet = enum {
     extended1,
 };
 
+const ScancodeInfo = packed struct {
+    unused: u8,
+    lowerCase: u8,
+    upperCase: u8,
+    graphCase: u8,
+};
+
+const scancodeTableDefault = @bitCast([128]ScancodeInfo, @embedFile("stdkbd_default.bin"));
+
+var isShiftPressed = false;
+var isAltPressed = false;
+var isControlPressed = false;
+var isGraphPressed = false;
+
 fn pushScancode(set: ScancodeSet, scancode: u16, isRelease: bool) void {
+    if (set == .default) {
+        switch (scancode) {
+            29 => isControlPressed = !isRelease,
+            42 => isShiftPressed = !isRelease,
+            56 => isAltPressed = !isRelease,
+            else => {},
+        }
+    } else if (set == .extended0) {
+        switch (scancode) {
+            56 => isGraphPressed = !isRelease,
+            else => {},
+        }
+    }
+
     if (!isRelease) {
+        var key = if (scancode < 128 and set == .default) scancodeTableDefault[scancode] else null;
         lastKeyPress = KeyEvent{
             .set = set,
             .scancode = scancode,
+            .char = if (key) |k| if (isGraphPressed) k.graphCase else if (isShiftPressed) k.upperCase else k.lowerCase else null,
         };
     }
 
     // Zum Testen sollte folgendes verwendet werden:
-    Terminal.println("[kbd:{}/{}/{}]", set, scancode, if (isRelease) "R" else "P");
+    // Terminal.println("[kbd:{}/{}/{}]", set, scancode, if (isRelease) "R" else "P");
 }
 
 pub const FKey = enum {

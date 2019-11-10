@@ -164,14 +164,57 @@ extern fn executeUsercode() noreturn {
     }
 }
 
+const Glyph = packed struct {
+    const This = @This();
+
+    rows: [8]u8,
+
+    fn getPixel(this: This, x: u3, y: u3) u1 {
+        return @truncate(u1, (this.rows[y] >> x) & 1);
+    }
+};
+
+const stdfont = @bitCast([128]Glyph, @embedFile("stdfont.bin"));
+
+extern fn executeCodeEditor() noreturn {
+    var font = stdfont;
+
+    const text = "Hello, World!";
+
+    for (text) |c, i| {
+        var y: u3 = 0;
+        while (y < 7) : (y += 1) {
+            var x: u3 = 0;
+            while (x < 6) : (x += 1) {
+                VGA.setPixel(6 * (i % 50) + x, 8 * (i / 50) + y, switch (font[c].getPixel(x, y)) {
+                    0 => VGA.Color(0x1F),
+                    1 => VGA.Color(0x0),
+                });
+            }
+        }
+    }
+
+    VGA.swapBuffers();
+
+    while (true) {
+        if (Keyboard.getKey()) |key| {
+            if (key.char) |chr| {
+                Terminal.print("{c}", chr);
+            }
+        }
+
+        asm volatile ("hlt");
+    }
+}
+
 extern fn executeTilemapEditor() noreturn {
     var time: usize = 0;
-    var color: u4 = 1;
+    var color: VGA.Color = 1;
     while (true) : (time += 1) {
         if (Keyboard.getKey()) |key| {
             if (key.set == .default and key.scancode == 57) {
                 // space
-                if (@addWithOverflow(u4, color, 1, &color)) {
+                if (@addWithOverflow(VGA.Color, color, 1, &color)) {
                     color = 1;
                 }
             }
@@ -202,7 +245,7 @@ const taskList = TaskList.initMap(([_]TaskList.KV{
     TaskList.KV{
         .key = .codeEditor,
         .value = Task{
-            .entryPoint = editorNotImplementedYet,
+            .entryPoint = executeCodeEditor,
         },
     },
     TaskList.KV{
@@ -393,7 +436,7 @@ pub fn main() anyerror!void {
         while (y < VGA.height) : (y += 1) {
             var x: usize = 0;
             while (x < VGA.width) : (x += 1) {
-                VGA.setPixel(x, y, @truncate(u4, x + y));
+                VGA.setPixel(x, y, @truncate(VGA.Color, x + y));
             }
         }
     }
