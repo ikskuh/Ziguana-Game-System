@@ -98,10 +98,10 @@ Note: `*x` means that `x` may be modified.
 ## Screenshots
 
 **Rendering text in VGA 256 color mode:**
-![https://mq32.de/public/91d1ab44ba267c5b94563e6d7d308c0232ce964c.png]
+![](https://mq32.de/public/91d1ab44ba267c5b94563e6d7d308c0232ce964c.png)
 
 **Playing a nice game of snake:**
-![https://mq32.de/public/4367caedb0616bf483852f55b315db3d361bb6aa.png]
+![](https://mq32.de/public/4367caedb0616bf483852f55b315db3d361bb6aa.png)
 
 ## TODO List
 
