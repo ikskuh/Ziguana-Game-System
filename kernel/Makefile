@@ -12,7 +12,7 @@ ZIG_FLAGS+=#-Drelease-fast=true
 all: boot.img
 
 run: boot.img
-	qemu-system-i386 $(QEMU_FLAGS) -hda $<
+	qemu-system-i386 $(QEMU_FLAGS) -hda $< | aux/stacktrace_to_line.sh
 
 boot.img: zig-cache/bin/kernel syslinux.cfg
 	fallocate -l 20M $@
