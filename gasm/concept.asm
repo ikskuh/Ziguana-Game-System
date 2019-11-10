@@ -125,14 +125,14 @@ loseGame:
 	cmp r0, 320
 	jnz .loopX
 
-	# this takes sufficient time
-	mov r2, r1
-	and r2, 0x01
-	cmp r2, 0
-	jnz .skipFlush
+	gettime [nextFrame]
+	add [nextFrame], 5
+.vsync:
+	gettime r2
+	cmp r2, [nextFrame]
+	jlz .vsync # jump less than zero 
 
 	flushpix
-.skipFlush:
 	
 	add r1, 1
 	cmp r1, 200

@@ -33,7 +33,7 @@ floopy.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin
+zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin
 	zig build $(ZIG_FLAGS)
 
 zig-cache/bin/assembler:
@@ -44,6 +44,9 @@ src/stdfont.bin: ../data/font_8x8.png aux/fontconv.exe
 
 src/stdkbd_default.bin: ../data/kbd_ger_std.txt aux/mkkeymap.exe
 	mono aux/mkkeymap.exe $< $@
+
+src/splashscreen.bin: ../data/splashlogo.png aux/mkbitmap.exe
+	mono aux/mkbitmap.exe $< $@
 
 assembler-test: ./zig-cache/bin/assembler
 	./zig-cache/bin/assembler

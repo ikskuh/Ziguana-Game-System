@@ -33,7 +33,7 @@ pub fn Bitmap(comptime BitCount: comptime_int) type {
                 inline while (b < BitPerWord) : (b += 1) {
                     const bitmask = (1 << b);
                     if ((bits.* & bitmask) != 0) {
-                        bits.* &= ~usize(bitmask);
+                        bits.* &= ~@as(usize, bitmask);
                         return (BitPerWord * i + b);
                     }
                 }
@@ -46,8 +46,8 @@ pub fn Bitmap(comptime BitCount: comptime_int) type {
             const i = bit / BitPerWord;
             const b = @truncate(u5, bit % BitPerWord);
             switch (marker) {
-                .allocated => this.bitmap[i] &= ~(usize(1) << b),
-                .free => this.bitmap[i] |= (usize(1) << b),
+                .allocated => this.bitmap[i] &= ~(@as(usize, 1) << b),
+                .free => this.bitmap[i] |= (@as(usize, 1) << b),
             }
         }
 

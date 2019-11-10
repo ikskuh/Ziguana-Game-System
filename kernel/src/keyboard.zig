@@ -21,6 +21,8 @@ pub fn init() void {
 
     // Tastatur aktivieren
     sendCommand(0xF4);
+
+    Interrupts.enableIRQ(1);
 }
 
 pub const KeyEvent = struct {
@@ -29,7 +31,7 @@ pub const KeyEvent = struct {
     char: ?u8,
 };
 
-var foo = u32(0);
+var foo: u32 = 0;
 var lastKeyPress: ?KeyEvent = null;
 
 pub fn getKey() ?KeyEvent {
@@ -173,7 +175,7 @@ fn kbdIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
             break :blk .receiveE1_Byte1;
         },
         .receiveE1_Byte1 => blk: {
-            const scancode = (u16(inputData) << 8) | e1Byte0;
+            const scancode = (@as(u16, inputData) << 8) | e1Byte0;
 
             pushScancode(.extended1, scancode, (inputData & 0x80) != 0);
 

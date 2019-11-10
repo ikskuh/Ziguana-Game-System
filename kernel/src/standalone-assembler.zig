@@ -13,7 +13,7 @@ pub const assembler_api = struct {
 };
 
 pub fn getRegisterAddress(register: u4) u32 {
-    return 0x1000 + 4 * u32(register);
+    return 0x1000 + 4 * @as(u32, register);
 }
 
 pub fn main() !void {

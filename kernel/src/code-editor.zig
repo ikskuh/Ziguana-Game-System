@@ -324,6 +324,7 @@ pub extern fn run() noreturn {
             paint();
         }
 
+        // Sleep and wait for interrupt
         asm volatile ("hlt");
     }
 }

@@ -115,7 +115,7 @@ pub fn put(c: u8) void {
         '\r' => cursorX = 0,
         '\n' => newline(),
         '\t' => {
-            cursorX = (cursorX & ~u16(3)) + u16(4);
+            cursorX = (cursorX & ~@as(u16, 3)) + 4;
             if (cursorX >= WIDTH)
                 newline();
         },

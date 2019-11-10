@@ -9,21 +9,14 @@ const Interrupts = @import("interrupts.zig");
 const Keyboard = @import("keyboard.zig");
 const SerialPort = @import("serial-port.zig");
 const CodeEditor = @import("code-editor.zig");
-
+const Timer = @import("timer.zig");
+const SplashScreen = @import("splashscreen.zig");
 const Assembler = @import("assembler.zig");
 
 const EnumArray = @import("enum-array.zig").EnumArray;
 const Bitmap = @import("bitmap.zig").Bitmap;
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
-
-var systemTicks: u32 = 0;
-
-// right now roughly 100ms
-fn handleTimerIRQ(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
-    _ = @atomicRmw(u32, &systemTicks, .Add, 1, .Release);
-    return cpu;
-}
 
 var usercodeValid: bool = false;
 
@@ -74,7 +67,7 @@ pub const assembler_api = struct {
 
     pub extern fn gettime() u32 {
         // systemTicks is in 0.1 sec steps, but we want ms
-        const time = 100 * @atomicLoad(u32, &systemTicks, .Acquire);
+        const time = Timer.ticks;
         // Terminal.println("gettime() = {}", time);
         return time;
     }
@@ -82,12 +75,12 @@ pub const assembler_api = struct {
     pub extern fn getkey() u32 {
         const keycode = if (Keyboard.getKey()) |key|
             key.scancode | switch (key.set) {
-                .default => u32(0),
-                .extended0 => u32(0x10000),
-                .extended1 => u32(0x20000),
+                .default => @as(u32, 0),
+                .extended0 => @as(u32, 0x10000),
+                .extended1 => @as(u32, 0x20000),
             }
         else
-            u32(0);
+            @as(u32, 0);
 
         // Terminal.println("getkey() = 0x{X:0>5}", keycode);
         return keycode;
@@ -129,6 +122,7 @@ const Task = struct {
 };
 
 pub const TaskId = enum {
+    splash,
     shell,
     codeEditor,
     spriteEditor,
@@ -183,7 +177,7 @@ extern fn executeTilemapEditor() noreturn {
             var x: usize = 0;
             while (x < VGA.width) : (x += 1) {
                 // c = @truncate(u4, (x + offset_x + dx) / 32 + (y + offset_y + dy) / 32);
-                const c = if (y > (systemTicks % 480)) color else 0;
+                const c = if (y > ((Timer.ticks / 10) % 200)) color else 0;
                 VGA.setPixel(x, y, c);
             }
         }
@@ -194,6 +188,12 @@ extern fn executeTilemapEditor() noreturn {
 
 const TaskList = EnumArray(TaskId, Task);
 const taskList = TaskList.initMap(([_]TaskList.KV{
+    TaskList.KV{
+        .key = .splash,
+        .value = Task{
+            .entryPoint = SplashScreen.run,
+        },
+    },
     TaskList.KV{
         .key = .shell,
         .value = Task{
@@ -367,18 +367,19 @@ pub fn main() anyerror!void {
         Interrupts.init();
         Terminal.println("[X");
 
-        Interrupts.setIRQHandler(0, handleTimerIRQ);
-
         Terminal.print("[ ] Enable IRQs...\r");
         Interrupts.enableExternalInterrupts();
-        Interrupts.enableAllIRQs();
+        // Interrupts.enableAllIRQs();
         Terminal.println("[X");
     }
-    {
-        Terminal.print("[ ] Enable Keyboard...\r");
-        Keyboard.init();
-        Terminal.println("[X");
-    }
+
+    Terminal.print("[ ] Enable Keyboard...\r");
+    Keyboard.init();
+    Terminal.println("[X");
+
+    Terminal.print("[ ] Enable Timer...\r");
+    Timer.init();
+    Terminal.println("[X");
 
     Terminal.print("Initialize text editor...\r\n");
     try CodeEditor.load(developSource[0..]);
@@ -404,7 +405,7 @@ pub fn main() anyerror!void {
 
     VGA.swapBuffers();
 
-    asm volatile ("int $0x40");
+    asm volatile ("int $0x45");
     unreachable;
 }
 
@@ -544,7 +545,7 @@ const vmm_mapper = struct {
     }
 
     fn create_userspace(directory: *PageDirectory) !void {
-        var pointer = u32(startOfUserspace);
+        var pointer = @as(u32, startOfUserspace);
         while (pmm_bitmap.alloc()) |page_index| : (pointer += 4096) {
             // Terminal.println("Map {X} to {X}", pmm_address, pointer);
             try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
@@ -596,7 +597,7 @@ const vmm_mapper = struct {
                 std.debug.assert(@ptrToInt(tbl) == (@bitCast(usize, dirEntry.*) & 0xFFFFF000));
             }
 
-            var table = @intToPtr(*allowzero PageTable, ((usize(dirEntry.pointer1) << 4) | usize(dirEntry.pointer0)) << 12);
+            var table = @intToPtr(*allowzero PageTable, ((@as(usize, dirEntry.pointer1) << 4) | @as(usize, dirEntry.pointer0)) << 12);
 
             var tblEntry = &table.entries[loc.tableIndex];
 

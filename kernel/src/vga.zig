@@ -47,7 +47,7 @@ pub fn write_regs(regs: [61]u8) void {
     outportb(VGA_CRTC_INDEX, 0x03);
     outportb(VGA_CRTC_DATA, inportb(VGA_CRTC_DATA) | 0x80);
     outportb(VGA_CRTC_INDEX, 0x11);
-    outportb(VGA_CRTC_DATA, inportb(VGA_CRTC_DATA) & ~u8(0x80));
+    outportb(VGA_CRTC_DATA, inportb(VGA_CRTC_DATA) & ~@as(u8, 0x80));
 
     // make sure they remain unlocked
     // TODO: Reinsert again
@@ -106,9 +106,9 @@ fn get_fb_seg() [*]volatile u8 {
     outportb(VGA_GC_INDEX, 6);
     const seg = (inportb(VGA_GC_DATA) >> 2) & 3;
     return @intToPtr([*]volatile u8, switch (@truncate(u2, seg)) {
-        0, 1 => u32(0xA0000),
-        2 => u32(0xB0000),
-        3 => u32(0xB8000),
+        0, 1 => @as(u32, 0xA0000),
+        2 => @as(u32, 0xB0000),
+        3 => @as(u32, 0xB8000),
     });
 }
 
@@ -209,6 +209,50 @@ pub fn swapBuffers() void {
             }
         },
     }
+}
+
+pub const RGB = struct {
+    r: u8,
+    g: u8,
+    b: u8,
+
+    pub fn init(r: u8, g: u8, b: u8) RGB {
+        return RGB{
+            .r = r,
+            .g = g,
+            .b = b,
+        };
+    }
+};
+const PALETTE_INDEX = 0x03c8;
+const PALETTE_DATA = 0x03c9;
+
+// see: http://www.brackeen.com/vga/source/bc31/palette.c.html
+pub fn loadPalette(palette: []const RGB) void {
+    io.outb(PALETTE_INDEX, 0); // tell the VGA that palette data is coming.
+    for (palette) |rgb| {
+        io.outb(PALETTE_DATA, rgb.r); // write the data
+        io.outb(PALETTE_DATA, rgb.g);
+        io.outb(PALETTE_DATA, rgb.b);
+    }
+}
+
+pub fn setPaletteEntry(entry: u8, color: RGB) void {
+    io.outb(PALETTE_INDEX, entry); // tell the VGA that palette data is coming.
+    io.outb(PALETTE_DATA, color.r); // write the data
+    io.outb(PALETTE_DATA, color.g);
+    io.outb(PALETTE_DATA, color.b);
+}
+
+// see: http://www.brackeen.com/vga/source/bc31/palette.c.html
+pub fn waitForVSync() void {
+    const INPUT_STATUS = 0x03da;
+    const VRETRACE = 0x08;
+
+    // wait until done with vertical retrace
+    while ((io.inb(INPUT_STATUS) & VRETRACE) != 0) {}
+    // wait until done refreshing
+    while ((io.inb(INPUT_STATUS) & VRETRACE) == 0) {}
 }
 
 const VGA_AC_INDEX = 0x3C0;

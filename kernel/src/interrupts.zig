@@ -93,6 +93,7 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
         0x42 => return Root.switchTask(.spriteEditor),
         0x43 => return Root.switchTask(.tilemapEditor),
         0x44 => return Root.switchTask(.codeRunner),
+        0x45 => return Root.switchTask(.splash),
         else => {
             Terminal.println("Unhandled interrupt:\r\n{}", cpu);
             while (true) {
@@ -140,10 +141,10 @@ pub fn fireInterrupt(comptime intr: u32) void {
 pub fn enableIRQ(irqNum: u4) void {
     switch (irqNum) {
         0...7 => {
-            io.outb(0x21, io.inb(0x21) & ~(u8(1) << @intCast(u3, irqNum)));
+            io.outb(0x21, io.inb(0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum)));
         },
         8...15 => {
-            io.outb(0x21, io.inb(0x21) & ~(u8(1) << @intCast(u3, irqNum - 8)));
+            io.outb(0x21, io.inb(0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum - 8)));
         },
     }
 }
@@ -151,10 +152,10 @@ pub fn enableIRQ(irqNum: u4) void {
 pub fn disableIRQ(irqNum: u4) void {
     switch (irqNum) {
         0...7 => {
-            io.outb(0x21, io.inb(0x21) | (u8(1) << @intCast(u3, irqNum)));
+            io.outb(0x21, io.inb(0x21) | (@as(u8, 1) << @intCast(u3, irqNum)));
         },
         8...15 => {
-            io.outb(0x21, io.inb(0x21) | (u8(1) << @intCast(u3, irqNum - 8)));
+            io.outb(0x21, io.inb(0x21) | (@as(u8, 1) << @intCast(u3, irqNum - 8)));
         },
     }
 }

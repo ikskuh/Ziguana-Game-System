@@ -246,7 +246,7 @@ const Parser = struct {
                     comptime var i = 0;
                     inline while (i < 16) : (i += 1) {
                         comptime var registerName: [3]u8 = "r??";
-                        comptime var len = std.fmt.formatIntBuf(registerName[1..], i, 10, false, std.fmt.FormatOptions{});
+                        comptime var len = std.fmt.formatIntBuf(registerName[1..], @as(usize, i), 10, false, std.fmt.FormatOptions{});
                         // @compileLog(i, registerName[0 .. 1 + len]);
                         if (std.mem.eql(u8, text, registerName[0 .. 1 + len])) {
                             return Token{
@@ -639,8 +639,8 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                 // enable this for line callback :)
                 if (@hasDecl(@import("root"), "enable_assembler_tracing")) {
                     if (@import("root").enable_assembler_tracing) {
-                        try writer.write(u8(0xCD));
-                        try writer.write(u8(0x30));
+                        try writer.write(@as(u8, 0xCD));
+                        try writer.write(@as(u8, 0x30));
                         try writer.write(parser.lineNumber);
                     }
                 }
@@ -953,24 +953,24 @@ const InstrOutput = union(enum) {
         switch (this) {
             .indirection => |ind| {
                 // A144332211        mov eax,[0x11223344]
-                try writer.write(u8(0xA1));
+                try writer.write(@as(u8, 0xA1));
                 try writer.writeWithOffset(ind.address, ind.offset);
             },
             // actually only required when someone does `[reg]`
             .doubleIndirection => |ind| {
                 // A144332211        mov eax,[0x11223344]
-                try writer.write(u8(0xA1));
+                try writer.write(@as(u8, 0xA1));
                 try writer.write(ind.address);
 
                 if (ind.offset != 0) {
                     // 8B8044332211      mov eax,[eax+0x11223344]
-                    try writer.write(u8(0x8B));
-                    try writer.write(u8(0x80));
+                    try writer.write(@as(u8, 0x8B));
+                    try writer.write(@as(u8, 0x80));
                     try writer.write(ind.offset);
                 } else {
                     // 8B00              mov eax,[eax]
-                    try writer.write(u8(0x8B));
-                    try writer.write(u8(0x00));
+                    try writer.write(@as(u8, 0x8B));
+                    try writer.write(@as(u8, 0x00));
                 }
             },
         }
@@ -981,25 +981,25 @@ const InstrOutput = union(enum) {
         switch (this) {
             .indirection => |ind| {
                 // A344332211        mov [0x11223344],eax
-                try writer.write(u8(0xA3));
+                try writer.write(@as(u8, 0xA3));
                 try writer.writeWithOffset(ind.address, ind.offset);
             },
             // actually only required when someone does `[reg]`
             .doubleIndirection => |ind| {
                 // 8B 1D 44332211      mov ebx,[dword 0x11223344]
-                try writer.write(u8(0x8B));
-                try writer.write(u8(0x1D));
+                try writer.write(@as(u8, 0x8B));
+                try writer.write(@as(u8, 0x1D));
                 try writer.write(ind.address);
 
                 if (ind.offset != 0) {
                     // 898344332211      mov [ebx+0x11223344],eax
-                    try writer.write(u8(0x89));
-                    try writer.write(u8(0x83));
+                    try writer.write(@as(u8, 0x89));
+                    try writer.write(@as(u8, 0x83));
                     try writer.write(ind.offset);
                 } else {
                     // 8903              mov [ebx],eax
-                    try writer.write(u8(0x89));
-                    try writer.write(u8(0x03));
+                    try writer.write(@as(u8, 0x89));
+                    try writer.write(@as(u8, 0x03));
                 }
             },
         }
@@ -1032,29 +1032,29 @@ const InstrInput = union(enum) {
         switch (this) {
             .immediate => |imm| {
                 // B844332211        mov eax,0x11223344
-                try writer.write(u8(0xB8));
+                try writer.write(@as(u8, 0xB8));
                 try writer.write(imm);
             },
             .indirection => |ind| {
                 // A144332211        mov eax,[0x11223344]
-                try writer.write(u8(0xA1));
+                try writer.write(@as(u8, 0xA1));
                 try writer.writeWithOffset(ind.address, ind.offset);
             },
             // actually only required when someone does `[reg]`
             .doubleIndirection => |ind| {
                 // A144332211        mov eax,[0x11223344]
-                try writer.write(u8(0xA1));
+                try writer.write(@as(u8, 0xA1));
                 try writer.write(ind.address);
 
                 if (ind.offset != 0) {
                     // 8B8044332211      mov eax,[eax+0x11223344]
-                    try writer.write(u8(0x8B));
-                    try writer.write(u8(0x80));
+                    try writer.write(@as(u8, 0x8B));
+                    try writer.write(@as(u8, 0x80));
                     try writer.write(ind.offset);
                 } else {
                     // 8B00              mov eax,[eax]
-                    try writer.write(u8(0x8B));
-                    try writer.write(u8(0x00));
+                    try writer.write(@as(u8, 0x8B));
+                    try writer.write(@as(u8, 0x00));
                 }
             },
         }
@@ -1082,8 +1082,8 @@ fn emitConditionalJump(writer: *Writer, dst: InstrInput, jumpCode: u8) WriterErr
 fn emitMovEbxToEax(writer: *Writer) WriterError!void {
 
     // 89C3              mov ebx,eax
-    try writer.write(u8(0x89));
-    try writer.write(u8(0xC3));
+    try writer.write(@as(u8, 0x89));
+    try writer.write(@as(u8, 0xC3));
 }
 
 /// Contains emitter functions for every possible instructions.
@@ -1103,8 +1103,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // 01D8              add eax,ebx
-        try writer.write(u8(0x01));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x01));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1118,8 +1118,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // 29D8              sub eax,ebx
-        try writer.write(u8(0x29));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x29));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1131,41 +1131,41 @@ const InstructionCore = struct {
         try lhs.loadToEAX(writer);
 
         // 39D8              cmp eax,ebx
-        try writer.write(u8(0x39));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x39));
+        try writer.write(@as(u8, 0xD8));
     }
     fn jmp(writer: *Writer, pos: InstrInput) WriterError!void {
         switch (pos) {
             .immediate => |imm| {
                 // B844332211        mov eax,0x11223344
-                try writer.write(u8(0xB8));
+                try writer.write(@as(u8, 0xB8));
                 try writer.write(imm);
 
                 // FFE0              jmp eax
-                try writer.write(u8(0xFF));
-                try writer.write(u8(0xE0));
+                try writer.write(@as(u8, 0xFF));
+                try writer.write(@as(u8, 0xE0));
             },
             .indirection => |ind| {
                 // FF2544332211      jmp [dword 0x11223344]
-                try writer.write(u8(0xFF));
-                try writer.write(u8(0x25));
+                try writer.write(@as(u8, 0xFF));
+                try writer.write(@as(u8, 0x25));
                 try writer.writeWithOffset(ind.address, ind.offset);
             },
             // actually only required when someone does `[reg]`
             .doubleIndirection => |ind| {
                 // A144332211        mov eax,[0x11223344]
-                try writer.write(u8(0xA1));
+                try writer.write(@as(u8, 0xA1));
                 try writer.write(ind.address);
 
                 if (ind.offset != 0) {
                     // FFA044332211      jmp [eax+0x11223344]
-                    try writer.write(u8(0xFF));
-                    try writer.write(u8(0xA0));
+                    try writer.write(@as(u8, 0xFF));
+                    try writer.write(@as(u8, 0xA0));
                     try writer.write(ind.offset);
                 } else {
                     // FF20              jmp [eax]
-                    try writer.write(u8(0xFF));
-                    try writer.write(u8(0x20));
+                    try writer.write(@as(u8, 0xFF));
+                    try writer.write(@as(u8, 0x20));
                 }
             },
         }
@@ -1195,8 +1195,8 @@ const InstructionCore = struct {
 
         // F7E3              mul ebx
         // clobbers EDX with higher part
-        try writer.write(u8(0xF7));
-        try writer.write(u8(0xE3));
+        try writer.write(@as(u8, 0xF7));
+        try writer.write(@as(u8, 0xE3));
 
         try dst.saveFromEAX(writer);
     }
@@ -1209,8 +1209,8 @@ const InstructionCore = struct {
 
         // F7F3              div ebx
         // clobbers EDX with remainder part
-        try writer.write(u8(0xF7));
-        try writer.write(u8(0xF3));
+        try writer.write(@as(u8, 0xF7));
+        try writer.write(@as(u8, 0xF3));
 
         try dst.saveFromEAX(writer);
     }
@@ -1223,12 +1223,12 @@ const InstructionCore = struct {
 
         // F7F3              div ebx
         // clobbers EDX with remainder part
-        try writer.write(u8(0xF7));
-        try writer.write(u8(0xF3));
+        try writer.write(@as(u8, 0xF7));
+        try writer.write(@as(u8, 0xF3));
 
         // 89D0              mov eax,edx
-        try writer.write(u8(0x89));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0x89));
+        try writer.write(@as(u8, 0xD0));
 
         try dst.saveFromEAX(writer);
     }
@@ -1236,12 +1236,12 @@ const InstructionCore = struct {
         // extern fn () u32
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.gettime)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
 
         try dst.saveFromEAX(writer);
     }
@@ -1249,12 +1249,12 @@ const InstructionCore = struct {
         // extern fn () u32
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.getkey)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
 
         try dst.saveFromEAX(writer);
     }
@@ -1267,8 +1267,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         //  21D8              and eax,ebx
-        try writer.write(u8(0x21));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x21));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1281,8 +1281,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // 09D8              or eax,ebx
-        try writer.write(u8(0x09));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x09));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1295,8 +1295,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // 31D8              xor eax,ebx
-        try writer.write(u8(0x31));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0x31));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1305,8 +1305,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // F7D0              not eax
-        try writer.write(u8(0xF7));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xF7));
+        try writer.write(@as(u8, 0xD0));
 
         try dst.saveFromEAX(writer);
     }
@@ -1315,8 +1315,8 @@ const InstructionCore = struct {
         try dst.loadToEAX(writer);
 
         // F7D8              neg eax
-        try writer.write(u8(0xF7));
-        try writer.write(u8(0xD8));
+        try writer.write(@as(u8, 0xF7));
+        try writer.write(@as(u8, 0xD8));
 
         try dst.saveFromEAX(writer);
     }
@@ -1325,53 +1325,53 @@ const InstructionCore = struct {
         // extern fn (x: u32, y: u32, col: u32) void
         try col.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         try y.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         try x.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.setpix)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
 
         // 83C444            add esp,byte +0x44
         // pop*3
-        try writer.write(u8(0x83));
-        try writer.write(u8(0xC4));
-        try writer.write(u8(0x0C)); // pop 3 args
+        try writer.write(@as(u8, 0x83));
+        try writer.write(@as(u8, 0xC4));
+        try writer.write(@as(u8, 0x0C)); // pop 3 args
     }
 
     fn getpix(writer: *Writer, col: InstrOutput, x: InstrInput, y: InstrInput) WriterError!void {
         // extern fn (x: u32, y: u32) u32
         try y.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         try x.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.getpix)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
 
         // 83C455            add esp,byte +0x55
-        try writer.write(u8(0x83));
-        try writer.write(u8(0xC4));
-        try writer.write(u8(0x08)); // pop 2 args
+        try writer.write(@as(u8, 0x83));
+        try writer.write(@as(u8, 0xC4));
+        try writer.write(@as(u8, 0x08)); // pop 2 args
 
         try col.saveFromEAX(writer);
     }
@@ -1379,30 +1379,30 @@ const InstructionCore = struct {
         // extern fn () void
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.flushpix)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
     }
     fn trace(writer: *Writer, on: InstrInput) WriterError!void {
         // extern fn (x: u32, y: u32, col: u32) void
         try on.loadToEAX(writer);
         // 50                push eax
-        try writer.write(u8(0x50));
+        try writer.write(@as(u8, 0x50));
 
         // B844332211        mov eax,0x11223344
-        try writer.write(u8(0xB8));
+        try writer.write(@as(u8, 0xB8));
         try writer.write(@intCast(u32, @ptrToInt(API.trace)));
 
         // FFD0              call eax
-        try writer.write(u8(0xFF));
-        try writer.write(u8(0xD0));
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xD0));
 
         // 83C444            add esp,byte +0x04
-        try writer.write(u8(0x83));
-        try writer.write(u8(0xC4));
-        try writer.write(u8(0x04)); // pop 1 args
+        try writer.write(@as(u8, 0x83));
+        try writer.write(@as(u8, 0xC4));
+        try writer.write(@as(u8, 0x04)); // pop 1 args
     }
 };
