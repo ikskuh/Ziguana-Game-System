@@ -75,11 +75,19 @@ fn pushScancode(set: ScancodeSet, scancode: u16, isRelease: bool) void {
     }
 
     if (!isRelease) {
-        var key = if (scancode < 128 and set == .default) scancodeTableDefault[scancode] else null;
+        var keyinfo = if (scancode < 128 and set == .default) scancodeTableDefault[scancode] else ScancodeInfo{
+            .unused = undefined,
+            .lowerCase = 0,
+            .upperCase = 0,
+            .graphCase = 0,
+        };
+
+        var chr = if (isGraphPressed) keyinfo.graphCase else if (isShiftPressed) keyinfo.upperCase else keyinfo.lowerCase;
+
         lastKeyPress = KeyEvent{
             .set = set,
             .scancode = scancode,
-            .char = if (key) |k| if (isGraphPressed) k.graphCase else if (isShiftPressed) k.upperCase else k.lowerCase else null,
+            .char = if (chr != 0) chr else null,
         };
     }
 

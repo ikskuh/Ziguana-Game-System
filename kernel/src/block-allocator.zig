@@ -32,9 +32,9 @@ pub fn BlockAllocator(comptime T: type, comptime blockCount: usize) type {
         pub fn free(this: *This, obj: *T) void {
             const obj_p = @ptrCast([*]T, obj);
             const root = @ptrCast([*]T, &this.elements);
-            if (obj_p < root or obj_p > root + BlockCount)
+            if (@ptrToInt(obj_p) < @ptrToInt(root) or @ptrToInt(obj_p) >= @ptrToInt(root + BlockCount))
                 @panic("Object was not allocated with this allocator!");
-            const idx = obj_p - root;
+            const idx = (@ptrToInt(obj_p) - @ptrToInt(root)) / @sizeOf(T);
             this.bitmap.free(idx);
         }
     };

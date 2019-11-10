@@ -13,6 +13,7 @@ const ColorScheme = struct {
     register: VGA.Color,
     label: VGA.Color,
     directive: VGA.Color,
+    cursor: VGA.Color,
 };
 
 pub var colorScheme = ColorScheme{
@@ -24,6 +25,7 @@ pub var colorScheme = ColorScheme{
     .register = 3,
     .label = 30,
     .directive = 9,
+    .cursor = 7,
 };
 
 const Glyph = packed struct {
@@ -47,6 +49,9 @@ const TextLine = struct {
 var lines = BlockAllocator(TextLine, 4096).init();
 
 var firstLine: ?*TextLine = null;
+
+var cursorX: usize = 0;
+var cursorY: ?*TextLine = null;
 
 pub fn load(source: []const u8) !void {
     lines.reset();
@@ -72,6 +77,9 @@ pub fn load(source: []const u8) !void {
             firstLine = tl;
         }
     }
+
+    cursorY = firstLine;
+    cursorX = 0;
 }
 
 fn paint() void {
@@ -88,8 +96,6 @@ fn paint() void {
     }) {
         if (row >= 25)
             break;
-
-        var col: usize = 0;
 
         var line_text = line.text[0..line.length];
 
@@ -111,13 +117,19 @@ fn paint() void {
         var hadMnemonic = false;
 
         var pal: VGA.Color = 0;
+        var col: usize = 0;
+        var cursorCol: usize = 0;
         for (line_text) |c, i| {
             if (col >= 53) // maximum line length
                 break;
 
+            if (i <= cursorX) {
+                cursorCol = col;
+            }
+
             std.debug.assert(c != '\n');
             if (c == '\t') {
-                col = (col + 4) & 0xFFFF6;
+                col = (col + 4) & 0xFFFFC;
                 continue;
             }
 
@@ -173,6 +185,18 @@ fn paint() void {
             }
             col += 1;
         }
+
+        if (cursorX == line_text.len and line_text.len > 0) {
+            // adjust "end of line"
+            cursorCol += 1;
+        }
+
+        if (line == cursorY) {
+            var y: u3 = 0;
+            while (y < 7) : (y += 1) {
+                VGA.setPixel(6 * cursorCol, 8 * row + y, colorScheme.cursor);
+            }
+        }
     }
 
     VGA.swapBuffers();
@@ -183,25 +207,121 @@ pub extern fn run() noreturn {
 
     while (true) {
         if (Keyboard.getKey()) |key| {
-            if (key.set == .extended0 and key.scancode == 0x48) { // ↑
-                if (firstLine) |line| {
-                    if (line.previous) |prev| {
-                        firstLine = prev;
-                        paint();
+            const Helper = struct {
+                fn navigateUp() void {
+                    if (cursorY) |cursor| {
+                        if (cursor.previous) |prev| {
+                            if (cursorY == firstLine)
+                                firstLine = prev;
+                            cursorY = prev;
+                            cursorX = std.math.min(cursorX, cursorY.?.length);
+                        }
                     }
                 }
-            } else if (key.set == .extended0 and key.scancode == 0x50) { // ↓
-                if (firstLine) |line| {
-                    if (line.next) |next| {
-                        firstLine = next;
-                        paint();
-                    }
-                }
-            }
 
-            if (key.char) |chr| {
-                // Terminal.print("{c}", chr);
+                fn navigateDown() void {
+                    var lastLine = firstLine;
+                    var i: usize = 0;
+                    while (i < 24 and lastLine != null) : (i += 1) {
+                        lastLine = lastLine.?.next;
+                    }
+
+                    if (cursorY) |cursor| {
+                        if (cursor.next) |next| {
+                            if (cursorY == lastLine)
+                                firstLine = firstLine.?.next;
+                            cursorY = next;
+                            cursorX = std.math.min(cursorX, cursorY.?.length);
+                        }
+                    }
+                }
+
+                fn navigateLeft() void {
+                    if (cursorY) |cursor| {
+                        if (cursorX > 0) {
+                            cursorX -= 1;
+                        } else if (cursor.previous != null) {
+                            cursorX = std.math.maxInt(usize);
+                            navigateUp();
+                        }
+                    }
+                }
+
+                fn navigateRight() void {
+                    if (cursorY) |cursor| {
+                        if (cursorX < cursor.length) {
+                            cursorX += 1;
+                        } else if (cursor.next != null) {
+                            cursorX = 0;
+                            navigateDown();
+                        }
+                    }
+                }
+            };
+
+            if (key.set == .extended0 and key.scancode == 0x48) { // ↑
+                Helper.navigateUp();
+            } else if (key.set == .extended0 and key.scancode == 0x50) { // ↓
+                Helper.navigateDown();
+            } else if (key.set == .extended0 and key.scancode == 0x4B) { // ←
+                Helper.navigateLeft();
+            } else if (key.set == .extended0 and key.scancode == 0x4D) { // →
+                Helper.navigateRight();
+            } else if (key.set == .default and key.scancode == 14) { // backspace
+                if (cursorY) |cursor| {
+                    if (cursorX > 0) {
+                        std.mem.copy(u8, cursor.text[cursorX - 1 ..], cursor.text[cursorX..]);
+                        cursor.length -= 1;
+                        cursorX -= 1;
+                    } else {
+                        if (cursor.previous) |prev| {
+                            // merge lines here
+                            std.mem.copy(u8, prev.text[prev.length..], cursor.text[0..cursor.length]);
+
+                            cursorX = prev.length;
+                            prev.length += cursor.length;
+
+                            prev.next = cursor.next;
+                            if (cursor.next) |nx| {
+                                nx.previous = prev;
+                            }
+
+                            // ZIG BUG!
+                            lines.free(cursor);
+                            cursorY = prev;
+
+                            if (firstLine == cursor) {
+                                firstLine = prev;
+                            }
+                        } else {
+                            // nothing to delete
+                        }
+                    }
+                }
+            } else if (key.set == .extended0 and key.scancode == 71) { // Home
+                cursorX = 0;
+            } else if (key.set == .extended0 and key.scancode == 79) { // End
+                if (cursorY) |c| {
+                    cursorX = c.length;
+                }
             }
+            // [kbd:ScancodeSet.extended0/82/P] Ins
+            // [kbd:ScancodeSet.extended0/83/P] Del
+            // [kbd:ScancodeSet.extended0/73/P] PgUp
+            // [kbd:ScancodeSet.extended0/81/P] PgDown
+            else if (key.char) |chr| {
+                if (chr != '\n') {
+                    if (cursorY) |cursor| {
+                        if (cursorX < cursor.length) {
+                            std.mem.copyBackwards(u8, cursor.text[cursorX + 1 .. cursor.length], cursor.text[cursorX .. std.math.max(1, cursor.length) - 1]);
+                        }
+                        cursor.text[cursorX] = chr;
+                        cursor.length += 1;
+                        cursorX += 1;
+                    }
+                }
+            }
+            paint();
         }
 
         asm volatile ("hlt");

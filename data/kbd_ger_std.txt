@@ -14,7 +14,7 @@
 12	SZ	ß	?	\
 13	Tick	´	`
 14	Backspace	\08
-15	Tabulator	\0B
+15	Tabulator	\09
 16	Q	q	Q	@
 17	W	w	W
 18	E	e	E	€
