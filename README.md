@@ -109,7 +109,7 @@ Note: `*x` means that `x` may be modified.
 
 - [x] Create bare metal i386 application
 - [x] Provide a 16 color VGA driver with 640x480 pixels resolution
-- [ ] Provide a keyboard input driver
+- [x] Provide a keyboard input driver
 - [ ] Provide a sound driver
 - [ ] Have a simple file system supported
 	- [ ] Floppy controller support
@@ -119,7 +119,7 @@ Note: `*x` means that `x` may be modified.
 	- [ ] sound
 	- [ ] image
 - [ ] Allow "scripting" via GASM
-	- [ ] Write assembler
+	- [x] Write assembler
 	- [ ] Write spec
 	- [ ] Write documentation
 

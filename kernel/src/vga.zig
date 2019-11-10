@@ -149,6 +149,14 @@ pub fn setPixelDirect(x: usize, y: usize, c: Color) void {
 
 var backbuffer: [height][width]Color = undefined;
 
+pub fn clear(c: Color) void {
+    for (backbuffer) |*row| {
+        for (row) |*pixel| {
+            pixel.* = c;
+        }
+    }
+}
+
 pub fn setPixel(x: usize, y: usize, c: Color) void {
     backbuffer[y][x] = c;
 }

@@ -8,11 +8,12 @@ const GDT = @import("gdt.zig");
 const Interrupts = @import("interrupts.zig");
 const Keyboard = @import("keyboard.zig");
 const SerialPort = @import("serial-port.zig");
+const CodeEditor = @import("code-editor.zig");
 
 const Assembler = @import("assembler.zig");
 
 const EnumArray = @import("enum-array.zig").EnumArray;
-const BitmapAllocator = @import("bitmap-allocator.zig").BitmapAllocator;
+const Bitmap = @import("bitmap.zig").Bitmap;
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
@@ -164,69 +165,6 @@ extern fn executeUsercode() noreturn {
     }
 }
 
-const Glyph = packed struct {
-    const This = @This();
-
-    rows: [8]u8,
-
-    fn getPixel(this: This, x: u3, y: u3) u1 {
-        return @truncate(u1, (this.rows[y] >> x) & 1);
-    }
-};
-
-const stdfont = @bitCast([128]Glyph, @embedFile("stdfont.bin"));
-
-extern fn executeCodeEditor() noreturn {
-    var font = stdfont;
-
-    const text = developSource;
-
-    var col: usize = 0;
-    var row: usize = 0;
-
-    for (text) |c| {
-        if (c == '\n') {
-            col = 1000000; // definitly "out of screen"
-            continue;
-        } else if (c == '\t') {
-            col = (col + 4) & 0xFFFF6;
-            continue;
-        }
-
-        if (col >= VGA.width / 6) {
-            col = 0;
-            row += 1;
-            if (row >= 25)
-                break;
-        }
-
-        const safe_c = if (c < 128) c else '?';
-        var y: u3 = 0;
-        while (y < 7) : (y += 1) {
-            var x: u3 = 0;
-            while (x < 6) : (x += 1) {
-                VGA.setPixel(6 * col + x, 8 * row + y, switch (font[safe_c].getPixel(x, y)) {
-                    0 => VGA.Color(0x0),
-                    1 => VGA.Color(0x1F),
-                });
-            }
-        }
-        col += 1;
-    }
-
-    VGA.swapBuffers();
-
-    while (true) {
-        if (Keyboard.getKey()) |key| {
-            if (key.char) |chr| {
-                Terminal.print("{c}", chr);
-            }
-        }
-
-        asm volatile ("hlt");
-    }
-}
-
 extern fn executeTilemapEditor() noreturn {
     var time: usize = 0;
     var color: VGA.Color = 1;
@@ -265,7 +203,7 @@ const taskList = TaskList.initMap(([_]TaskList.KV{
     TaskList.KV{
         .key = .codeEditor,
         .value = Task{
-            .entryPoint = executeCodeEditor,
+            .entryPoint = CodeEditor.run,
         },
     },
     TaskList.KV{
@@ -365,9 +303,9 @@ pub fn main() anyerror!void {
             var start = std.mem.alignForward(@intCast(usize, entry.baseAddress), 4096); // only allocate full pages
             var length = entry.length - (start - entry.baseAddress); // remove padded bytes
             while (start < entry.baseAddress + length) : (start += 4096) {
-                pmm_allocator.markPage(@intCast(usize, start), switch (entry.type) {
-                    .available => @typeOf(pmm_allocator).Marker.free,
-                    else => @typeOf(pmm_allocator).Marker.allocated,
+                pmm_bitmap.mark(@intCast(usize, start) / 0x1000, switch (entry.type) {
+                    .available => @typeOf(pmm_bitmap).Marker.free,
+                    else => @typeOf(pmm_bitmap).Marker.allocated,
                 });
             }
         }
@@ -378,7 +316,7 @@ pub fn main() anyerror!void {
         var pos = @ptrToInt(&__start);
         std.debug.assert(std.mem.isAligned(pos, 4096));
         while (pos < @ptrToInt(&__end)) : (pos += 4096) {
-            pmm_allocator.markPage(pos, .allocated);
+            pmm_bitmap.mark(pos / 0x1000, .allocated);
         }
     }
 
@@ -386,10 +324,10 @@ pub fn main() anyerror!void {
     {
         var i: usize = 0x0000;
         while (i < 0x10000) : (i += 0x1000) {
-            pmm_allocator.markPage(i, .allocated);
+            pmm_bitmap.mark(i / 0x1000, .allocated);
         }
     }
-    Terminal.println("free memory: {} pages", pmm_allocator.getFreePageCount());
+    Terminal.println("free memory: {} pages", pmm_bitmap.getFreeCount());
 
     {
         Terminal.print("[ ] Initialize gdt...\r");
@@ -441,6 +379,9 @@ pub fn main() anyerror!void {
         Keyboard.init();
         Terminal.println("[X");
     }
+
+    Terminal.print("Initialize text editor...\r\n");
+    try CodeEditor.load(developSource[0..]);
 
     Terminal.print("VGA init...\r\n");
 
@@ -577,7 +518,7 @@ fn haltForever() noreturn {
 }
 
 // 1 MBit for 4 GB @ 4096 pages
-var pmm_allocator = BitmapAllocator(1 * 1024 * 1024).init();
+var pmm_bitmap = Bitmap(1 * 1024 * 1024).init(.allocated);
 
 const vmm_mapper = struct {
     // WARNING: Change assembler jmp according to this!
@@ -591,7 +532,7 @@ const vmm_mapper = struct {
     }
 
     fn init() !*PageDirectory {
-        var directory = @intToPtr(*PageDirectory, pmm_allocator.allocPage() orelse return error.OutOfMemory);
+        var directory = @intToPtr(*PageDirectory, 0x1000 * (pmm_bitmap.alloc() orelse return error.OutOfMemory));
         @memset(@ptrCast([*]u8, directory), 0, 4096);
 
         asm volatile ("mov %[ptr], %%cr3"
@@ -604,9 +545,9 @@ const vmm_mapper = struct {
 
     fn create_userspace(directory: *PageDirectory) !void {
         var pointer = u32(startOfUserspace);
-        while (pmm_allocator.allocPage()) |pmm_address| : (pointer += 4096) {
+        while (pmm_bitmap.alloc()) |page_index| : (pointer += 4096) {
             // Terminal.println("Map {X} to {X}", pmm_address, pointer);
-            try directory.mapPage(pointer, pmm_address, .readWrite);
+            try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
             sizeOfUserspace += 0x1000;
         }
     }
@@ -633,7 +574,7 @@ const vmm_mapper = struct {
 
             var dirEntry = &directory.entries[loc.directoryIndex];
             if (!dirEntry.isMapped) {
-                var tbl = @intToPtr(*allowzero PageTable, pmm_allocator.allocPage() orelse return error.OutOfMemory);
+                var tbl = @intToPtr(*allowzero PageTable, 0x1000 * (pmm_bitmap.alloc() orelse return error.OutOfMemory));
                 @memset(@ptrCast([*]u8, tbl), 0, 4096);
 
                 dirEntry.* = Entry{
