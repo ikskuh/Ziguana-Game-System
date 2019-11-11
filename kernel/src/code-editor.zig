@@ -54,6 +54,33 @@ var firstLine: ?*TextLine = null;
 var cursorX: usize = 0;
 var cursorY: ?*TextLine = null;
 
+/// Saves all text lines to the given slice.
+/// Returns the portion of the slice actually written.
+pub fn saveTo(target: []u8) ![]u8 {
+    var start = firstLine;
+    while (start) |s| {
+        if (s.previous != null) {
+            start = s.previous;
+        } else {
+            break;
+        }
+    }
+
+    var buffer = target;
+    var lenWritten: usize = 0;
+    while (start) |node| {
+        if (buffer.len < (node.length + 1))
+            return error.InputBufferTooSmall;
+        std.mem.copy(u8, buffer, node.text[0..node.length]);
+        buffer[node.length] = '\n';
+        buffer = buffer[node.length + 1 ..];
+        lenWritten += node.length + 1;
+        start = node.next;
+    }
+
+    return target[0..lenWritten];
+}
+
 pub fn load(source: []const u8) !void {
     lines.reset();
     firstLine = null;

@@ -20,9 +20,6 @@ export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header
 
 var usercodeValid: bool = false;
 
-// 1 MB Fixed buffer for debug purposes
-var fixedBufferForAllocation: [1 * 1024 * 1024]u8 align(16) = undefined;
-
 var registers: [16]u32 = [_]u32{0} ** 16;
 
 pub fn getRegisterAddress(register: u4) u32 {
@@ -141,7 +138,7 @@ extern fn editorNotImplementedYet() noreturn {
 extern fn executeUsercode() noreturn {
     Terminal.println("Start assembling code...");
 
-    var fba = std.heap.FixedBufferAllocator.init(fixedBufferForAllocation[0..]);
+    var fba = std.heap.FixedBufferAllocator.init(vmm_mapper.getHeap());
 
     if (Assembler.assemble(&fba.allocator, developSource, vmm_mapper.getUserSpace(), null)) {
         Terminal.println("Assembled code successfully!");
@@ -334,6 +331,8 @@ pub fn main() anyerror!void {
         }
     }
 
+    Terminal.println("total memory: {} pages, {Bi}", pmm_bitmap.getFreeCount(), 0x1000 * pmm_bitmap.getFreeCount());
+
     // mark "ourself" used
     {
         var pos = @ptrToInt(&__start);
@@ -350,7 +349,6 @@ pub fn main() anyerror!void {
             pmm_bitmap.mark(i / 0x1000, .allocated);
         }
     }
-    Terminal.println("free memory: {} pages", pmm_bitmap.getFreeCount());
 
     {
         Terminal.print("[ ] Initialize gdt...\r");
@@ -377,9 +375,15 @@ pub fn main() anyerror!void {
         }
     }
 
+    Terminal.print("[ ] Map user space memory...\r");
     try vmm_mapper.create_userspace(pageDirectory);
+    Terminal.println("[X");
 
-    Terminal.println("[x] Fill userspace: {Bi}", vmm_mapper.sizeOfUserspace);
+    Terminal.print("[ ] Map heap memory...\r");
+    try vmm_mapper.create_heap(pageDirectory);
+    Terminal.println("[X");
+
+    Terminal.println("free memory: {} pages, {Bi}", pmm_bitmap.getFreeCount(), 0x1000 * pmm_bitmap.getFreeCount());
 
     Terminal.print("[ ] Enable paging...\r");
     vmm_mapper.enable_paging();
@@ -547,12 +551,19 @@ var pmm_bitmap = Bitmap(1 * 1024 * 1024).init(.allocated);
 const vmm_mapper = struct {
     // WARNING: Change assembler jmp according to this!
     const startOfUserspace = 0x40000000; // 1 GB into virtual memory
-    var sizeOfUserspace: usize = 0; // not initialized
+    const sizeOfUserspace = 16 * 1024 * 1024; // 16 MB RAM
+    const endOfUserspace = startOfUserspace + sizeOfUserspace;
+
+    const startOfHeap = 0x80000000; // 2 GB into virtual memory
+    const sizeOfHeap = 1 * 1024 * 1024; // 1 MB
+    const endOfHeap = startOfHeap + sizeOfHeap;
 
     fn getUserSpace() []u8 {
-        if (sizeOfUserspace == 0)
-            @panic("Userspace is not initialized!");
         return @intToPtr([*]u8, startOfUserspace)[0..sizeOfUserspace];
+    }
+
+    fn getHeap() []u8 {
+        return @intToPtr([*]u8, startOfHeap)[0..sizeOfHeap];
     }
 
     fn init() !*PageDirectory {
@@ -569,10 +580,17 @@ const vmm_mapper = struct {
 
     fn create_userspace(directory: *PageDirectory) !void {
         var pointer = @as(u32, startOfUserspace);
-        while (pmm_bitmap.alloc()) |page_index| : (pointer += 4096) {
-            // Terminal.println("Map {X} to {X}", pmm_address, pointer);
+        while (pointer < endOfUserspace) : (pointer += 4096) {
+            var page_index = pmm_bitmap.alloc() orelse return error.OutOfMemory;
             try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
-            sizeOfUserspace += 0x1000;
+        }
+    }
+
+    fn create_heap(directory: *PageDirectory) !void {
+        var pointer = @as(u32, startOfHeap);
+        while (pointer < endOfHeap) : (pointer += 4096) {
+            var page_index = pmm_bitmap.alloc() orelse return error.OutOfMemory;
+            try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
         }
     }
 

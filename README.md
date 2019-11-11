@@ -14,6 +14,24 @@ to the PICO-8, LIKO-12 or TIC-80.
 		- Uses "slots": Every slot contains a full floppy disk image
 - User can program its projects via [GASM](#GASM) language
 
+## Specifications
+
+- Screen: 320×200 pixels, 256 colors, choosable palette
+- Audio: *to be defined...*
+- RAM: 16 MB
+- "Cartridges": Floppy Disks, 1440K
+- Input: Keyboard & mouse
+
+## Minimum Hardware Requirements
+To run this on *real* hardware, you need to meet the following
+hardware requirements:
+
+- VGA compatible graphics card (so: pretty much *any* card will work)
+- At least 20 MB of RAM
+- i486 compatible CPU (at least in theory, was tested on a Pentium III)
+- PS/2 compatible keyboard
+- Floppy disk drive
+
 ## GASM
 The *Game Assembly* language is a fake assembly language that
 behaves similar to x86 asm. It supports not only generic
@@ -104,25 +122,4 @@ Note: `*x` means that `x` may be modified.
 **Playing a nice game of snake:**
 
 ![](https://mq32.de/public/4367caedb0616bf483852f55b315db3d361bb6aa.png)
-
-## TODO List
-
-- [x] Create bare metal i386 application
-- [x] Provide a 16 color VGA driver with 640x480 pixels resolution
-- [x] Provide a keyboard input driver
-- [ ] Provide a sound driver
-- [ ] Have a simple file system supported
-	- [ ] Floppy controller support
-	- [ ] ATA support
-- [ ] Provide the following editors:
-	- [ ] code
-	- [ ] sound
-	- [ ] image
-- [ ] Allow "scripting" via GASM
-	- [x] Write assembler
-	- [ ] Write spec
-	- [ ] Write documentation
-
-
-
 
