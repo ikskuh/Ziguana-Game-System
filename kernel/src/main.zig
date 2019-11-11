@@ -255,6 +255,17 @@ pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.Cpu
         .F3 => switchTask(.spriteEditor),
         .F4 => switchTask(.tilemapEditor),
         .F5 => switchTask(.codeRunner),
+        .F12 => blk: {
+            if (Terminal.enable_serial) {
+                Terminal.println("Disable serial... Press F12 to enable serial again!");
+                Terminal.enable_serial = false;
+            } else {
+                Terminal.enable_serial = true;
+                Terminal.println("Serial output enabled!");
+            }
+
+            break :blk cpu;
+        },
         else => cpu,
     };
 }
@@ -411,26 +422,15 @@ pub fn main() anyerror!void {
     Terminal.print("Initialize text editor...\r\n");
     try CodeEditor.load(developSource[0..]);
 
-    Terminal.print("VGA init...\r\n");
-
+    Terminal.print("[ ] Initialize VGA...\r");
     // prevent the terminal to write data into the video memory
     Terminal.enable_video = false;
-
     VGA.init();
+    Terminal.println("[X");
 
-    // Terminal.println("Assembler Source:\r\n{}", developSource);
-
-    {
-        var y: usize = 0;
-        while (y < VGA.height) : (y += 1) {
-            var x: usize = 0;
-            while (x < VGA.width) : (x += 1) {
-                VGA.setPixel(x, y, @truncate(VGA.Color, x + y));
-            }
-        }
-    }
-
-    VGA.swapBuffers();
+    Terminal.println("[x] Disable serial debugging for better performance...");
+    Terminal.println("    Press F12 to re-enable serial debugging!");
+    Terminal.enable_serial = false;
 
     asm volatile ("int $0x45");
     unreachable;
@@ -442,6 +442,7 @@ fn kmain() noreturn {
     }
 
     main() catch |err| {
+        Terminal.enable_serial = true;
         Terminal.setColors(.white, .red);
         Terminal.println("\r\n\r\nmain() returned {}!", err);
         if (@errorReturnTrace()) |trace| {
@@ -453,6 +454,7 @@ fn kmain() noreturn {
         }
     };
 
+    Terminal.enable_serial = true;
     Terminal.println("system haltet, shut down now!");
     while (true) {
         Interrupts.disableExternalInterrupts();
@@ -503,6 +505,7 @@ fn printLineFromFile(out_stream: var, line_info: std.debug.LineInfo) anyerror!vo
 
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
+    Terminal.enable_serial = true;
     Interrupts.disableExternalInterrupts();
     Terminal.setColors(.white, .red);
     Terminal.println("\r\n\r\nKERNEL PANIC: {}\r\n", msg);

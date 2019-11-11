@@ -27,7 +27,11 @@ pub const height = switch (mode) {
     .mode640x480 => 480,
 };
 
-pub fn write_regs(regs: [61]u8) void {
+pub fn isInBounds(x: isize, y: isize) bool {
+    return x >= 0 and y >= 0 and x < width and y < height;
+}
+
+fn write_regs(regs: [61]u8) void {
     var index: usize = 0;
     var i: u8 = 0;
 

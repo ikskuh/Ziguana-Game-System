@@ -2,6 +2,7 @@ const std = @import("std");
 const Keyboard = @import("keyboard.zig");
 const VGA = @import("vga.zig");
 const Timer = @import("timer.zig");
+const TextPainter = @import("text-painter.zig");
 
 const Point = struct {
     x: usize,
@@ -47,8 +48,6 @@ fn loadBitmap(comptime bitmapData: []const u8) mkBitmapType(bitmapData) {
 }
 
 const logoData = loadBitmap(@embedFile("splashscreen.bin"));
-
-const spacePressData = loadBitmap(@embedFile("splashspace.bin"));
 
 pub extern fn run() noreturn {
     const oversampling = 4;
@@ -100,19 +99,10 @@ pub extern fn run() noreturn {
         }
 
         if (Timer.ticks % 1500 > 750) {
-            var y: usize = 0;
-            while (y < @typeOf(spacePressData).height) : (y += 1) {
-                var x: usize = 0;
-                while (x < @typeOf(spacePressData).width) : (x += 1) {
-                    var bit = spacePressData.getPixel(x, y);
-
-                    if (bit == 1) {
-                        const offset_x = (VGA.width - @typeOf(spacePressData).width) / 2;
-                        const offset_y = VGA.height - 2 * @typeOf(spacePressData).height;
-                        VGA.setPixel(offset_x + x, offset_y + y, 6);
-                    }
-                }
-            }
+            TextPainter.drawString(VGA.width / 2, VGA.height - 32, "[ Press Space ]", TextPainter.PaintOptions{
+                .color = 6,
+                .horizontalAlignment = .middle,
+            });
         }
 
         VGA.waitForVSync();

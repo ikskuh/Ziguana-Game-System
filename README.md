@@ -1,4 +1,4 @@
-# RetrOS
+# Ziguana Game System
 
 A project that aims to create a fake/virtual console similar
 to the PICO-8, LIKO-12 or TIC-80.

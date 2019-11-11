@@ -4,6 +4,7 @@ const VGA = @import("vga.zig");
 const TextTerminal = @import("text-terminal.zig");
 const BlockAllocator = @import("block-allocator.zig").BlockAllocator;
 const Timer = @import("timer.zig");
+const TextPainter = @import("text-painter.zig");
 
 const ColorScheme = struct {
     background: VGA.Color,
@@ -28,17 +29,6 @@ pub var colorScheme = ColorScheme{
     .directive = 7,
     .cursor = 8,
 };
-
-const Glyph = packed struct {
-    const This = @This();
-
-    rows: [8]u8,
-
-    fn getPixel(this: This, x: u3, y: u3) u1 {
-        return @truncate(u1, (this.rows[y] >> x) & 1);
-    }
-};
-const stdfont = @bitCast([128]Glyph, @embedFile("stdfont.bin"));
 
 const TextLine = struct {
     previous: ?*TextLine,
@@ -111,8 +101,6 @@ pub fn load(source: []const u8) !void {
 }
 
 fn paint() void {
-    const font = stdfont;
-
     VGA.clear(colorScheme.background);
 
     var row: usize = 0;
@@ -191,26 +179,18 @@ fn paint() void {
                 }
             }
 
-            const safe_c = if (c < 128) c else '?';
-            var y: u3 = 0;
-            while (y < 7) : (y += 1) {
-                var x: u3 = 0;
-                while (x < 6) : (x += 1) {
-                    if (font[safe_c].getPixel(x, y) == 1) {
-                        VGA.setPixel(1 + 6 * col + x, 8 * row + y, switch (highlighting) {
-                            .background => colorScheme.background,
-                            .text => colorScheme.text,
-                            .comment => colorScheme.comment,
-                            .mnemonic => colorScheme.mnemonic,
-                            .indirection => colorScheme.indirection,
-                            .register => colorScheme.register,
-                            .label => colorScheme.label,
-                            .directive => colorScheme.directive,
-                            else => colorScheme.text,
-                        });
-                    }
-                }
-            }
+            TextPainter.drawChar(@intCast(isize, 1 + 6 * col), @intCast(isize, 8 * row), c, switch (highlighting) {
+                .background => colorScheme.background,
+                .text => colorScheme.text,
+                .comment => colorScheme.comment,
+                .mnemonic => colorScheme.mnemonic,
+                .indirection => colorScheme.indirection,
+                .register => colorScheme.register,
+                .label => colorScheme.label,
+                .directive => colorScheme.directive,
+                else => colorScheme.text,
+            });
+
             col += 1;
         }
 
@@ -348,27 +328,97 @@ pub extern fn run() noreturn {
                         }
                     }
                 }
+            } else if (key.set == .default and key.scancode == 28) { // Return
+                if (cursorY) |cursor| {
+                    var cursor_set_pos: enum {
+                        tl,
+                        cursor,
+                    } = undefined;
+                    var tl = lines.alloc() catch @panic("out of memory!");
+                    if (cursorX == 0) {
+                        // trivial case: front insert
+                        tl.previous = cursor.previous;
+                        tl.next = cursor;
+                        tl.length = 0;
+                        if (firstLine == cursor) {
+                            firstLine = tl;
+                        }
+                    } else if (cursorX == cursor.length) {
+                        // trivial case: back insert
+                        tl.previous = cursor;
+                        tl.next = cursor.next;
+                        tl.length = 0;
+                        cursor_set_pos = .tl;
+                    } else {
+                        // complex case: middle insert
+                        tl.previous = cursor;
+                        tl.next = cursor.next;
+
+                        tl.length = cursor.length - cursorX;
+                        cursor.length = cursorX;
+
+                        std.mem.copy(u8, tl.text[0..], cursor.text[cursorX..]);
+                        cursor_set_pos = .tl;
+                    }
+
+                    if (tl.previous) |prev| {
+                        prev.next = tl;
+                    }
+                    if (tl.next) |next| {
+                        next.previous = tl;
+                    }
+                    switch (cursor_set_pos) {
+                        .tl => {
+                            cursorY = tl;
+                        },
+                        .cursor => {
+                            cursorY = cursor;
+                        },
+                    }
+                    cursorX = 0;
+                }
             } else if (key.set == .extended0 and key.scancode == 71) { // Home
                 cursorX = 0;
             } else if (key.set == .extended0 and key.scancode == 79) { // End
                 if (cursorY) |c| {
                     cursorX = c.length;
                 }
+            } else if (key.set == .extended0 and key.scancode == 83) { // Del
+                if (cursorY) |cursor| {
+                    if (cursorX == cursor.length) {
+                        // merge two lines
+                        if (cursor.next) |next| {
+                            std.mem.copy(u8, cursor.text[cursor.length..], next.text[0..next.length]);
+                            cursor.length += next.length;
+
+                            if (next.next) |nxt| {
+                                nxt.previous = cursor;
+                            }
+
+                            // BAH, FOOTGUNS
+                            lines.free(next);
+                            // BAH, MORE FOOTGUNS
+                            cursor.next = next.next;
+                        }
+                    } else {
+                        // erase character
+                        std.mem.copy(u8, cursor.text[cursorX .. cursor.length - 1], cursor.text[cursorX + 1 .. cursor.length]);
+                        cursor.length -= 1;
+                    }
+                }
             }
             // [kbd:ScancodeSet.extended0/82/P] Ins
-            // [kbd:ScancodeSet.extended0/83/P] Del
             // [kbd:ScancodeSet.extended0/73/P] PgUp
             // [kbd:ScancodeSet.extended0/81/P] PgDown
             else if (key.char) |chr| {
-                if (chr != '\n') {
-                    if (cursorY) |cursor| {
-                        cursor.length += 1;
-                        if (cursorX < cursor.length) {
-                            std.mem.copyBackwards(u8, cursor.text[cursorX + 1 .. cursor.length], cursor.text[cursorX .. cursor.length - 1]);
-                        }
-                        cursor.text[cursorX] = chr;
-                        cursorX += 1;
+                std.debug.assert(chr != '\n');
+                if (cursorY) |cursor| {
+                    cursor.length += 1;
+                    if (cursorX < cursor.length) {
+                        std.mem.copyBackwards(u8, cursor.text[cursorX + 1 .. cursor.length], cursor.text[cursorX .. cursor.length - 1]);
                     }
+                    cursor.text[cursorX] = chr;
+                    cursorX += 1;
                 }
             }
         }

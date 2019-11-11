@@ -23,7 +23,7 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin src/splashspace.bin
+floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin
 	zig build -Drelease-small=true
 	strip $<
 
@@ -38,7 +38,7 @@ floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin src/splashspace.bin
+zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin
 	zig build $(ZIG_FLAGS)
 
 zig-cache/bin/assembler:
@@ -51,9 +51,6 @@ src/stdkbd_default.bin: ../data/kbd_ger_std.txt aux/mkkeymap.exe
 	mono aux/mkkeymap.exe $< $@
 
 src/splashscreen.bin: ../data/splashlogo.png aux/mkbitmap.exe
-	mono aux/mkbitmap.exe $< $@
-
-src/splashspace.bin: ../data/splashspace.png aux/mkbitmap.exe
 	mono aux/mkbitmap.exe $< $@
 
 assembler-test: ./zig-cache/bin/assembler
