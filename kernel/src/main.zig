@@ -147,6 +147,29 @@ extern fn executeUsercode() noreturn {
         Terminal.println("Assembled code successfully!");
         Terminal.println("Memory required: {} bytes!", fba.end_index);
 
+        Terminal.println("Setup graphics...");
+
+        // Load dawnbringers 16 color palette
+        // see: https://lospec.com/palette-list/dawnbringer-16
+        VGA.loadPalette(comptime [_]VGA.RGB{
+            VGA.RGB.parse("#140c1c") catch unreachable, //  0 = black
+            VGA.RGB.parse("#442434") catch unreachable, //  1 = dark purple-brown
+            VGA.RGB.parse("#30346d") catch unreachable, //  2 = blue
+            VGA.RGB.parse("#4e4a4e") catch unreachable, //  3 = gray
+            VGA.RGB.parse("#854c30") catch unreachable, //  4 = brown
+            VGA.RGB.parse("#346524") catch unreachable, //  5 = green
+            VGA.RGB.parse("#d04648") catch unreachable, //  6 = salmon
+            VGA.RGB.parse("#757161") catch unreachable, //  7 = khaki
+            VGA.RGB.parse("#597dce") catch unreachable, //  8 = baby blue
+            VGA.RGB.parse("#d27d2c") catch unreachable, //  9 = orange
+            VGA.RGB.parse("#8595a1") catch unreachable, // 10 = light gray
+            VGA.RGB.parse("#6daa2c") catch unreachable, // 11 = grass green
+            VGA.RGB.parse("#d2aa99") catch unreachable, // 12 = skin
+            VGA.RGB.parse("#6dc2ca") catch unreachable, // 13 = bright blue
+            VGA.RGB.parse("#dad45e") catch unreachable, // 14 = yellow
+            VGA.RGB.parse("#deeed6") catch unreachable, // 15 = white
+        });
+
         Terminal.println("Start user code...");
         asm volatile ("jmp 0x40000000");
         unreachable;

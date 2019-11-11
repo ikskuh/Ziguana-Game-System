@@ -48,6 +48,8 @@ fn loadBitmap(comptime bitmapData: []const u8) mkBitmapType(bitmapData) {
 
 const logoData = loadBitmap(@embedFile("splashscreen.bin"));
 
+const spacePressData = loadBitmap(@embedFile("splashspace.bin"));
+
 pub extern fn run() noreturn {
     const oversampling = 4;
     var rng = std.rand.DefaultPrng.init(1);
@@ -80,17 +82,35 @@ pub extern fn run() noreturn {
             star.x %= oversampling * VGA.width;
         }
 
-        var y: usize = 0;
-        while (y < @typeOf(logoData).height) : (y += 1) {
-            var x: usize = 0;
-            while (x < @typeOf(logoData).width) : (x += 1) {
-                var bit = logoData.getPixel(x, y);
+        {
+            var y: usize = 0;
+            while (y < @typeOf(logoData).height) : (y += 1) {
+                var x: usize = 0;
+                while (x < @typeOf(logoData).width) : (x += 1) {
+                    var bit = logoData.getPixel(x, y);
 
-                if (bit == 1) {
-                    const offset_x = (VGA.width - @typeOf(logoData).width) / 2;
-                    const offset_y = (VGA.height - @typeOf(logoData).height) / 2;
-                    VGA.setPixel(offset_x + x, offset_y + y, 6);
-                    VGA.setPixel(offset_x + x + 1, offset_y + y + 1, 3);
+                    if (bit == 1) {
+                        const offset_x = (VGA.width - @typeOf(logoData).width) / 2;
+                        const offset_y = (VGA.height - @typeOf(logoData).height) / 2;
+                        VGA.setPixel(offset_x + x, offset_y + y, 6);
+                        VGA.setPixel(offset_x + x + 1, offset_y + y + 1, 3);
+                    }
+                }
+            }
+        }
+
+        if (Timer.ticks % 1500 > 750) {
+            var y: usize = 0;
+            while (y < @typeOf(spacePressData).height) : (y += 1) {
+                var x: usize = 0;
+                while (x < @typeOf(spacePressData).width) : (x += 1) {
+                    var bit = spacePressData.getPixel(x, y);
+
+                    if (bit == 1) {
+                        const offset_x = (VGA.width - @typeOf(spacePressData).width) / 2;
+                        const offset_y = VGA.height - 2 * @typeOf(spacePressData).height;
+                        VGA.setPixel(offset_x + x, offset_y + y, 6);
+                    }
                 }
             }
         }
@@ -99,5 +119,12 @@ pub extern fn run() noreturn {
         VGA.swapBuffers();
 
         Timer.wait(10);
+
+        if (Keyboard.getKey()) |key| {
+            if (key.set == .default and key.scancode == 57) {
+                asm volatile ("int $0x40");
+                unreachable;
+            }
+        }
     }
 }

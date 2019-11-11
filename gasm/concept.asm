@@ -11,8 +11,8 @@
 #
 
 .def BGCOLOR, 0
-.def PLAYERCOLOR, 1
-.def RED, 4
+.def PLAYERCOLOR, 8
+.def RED, 6
 .def UP,    0x10048 # escaped0 scancode 72 ↑
 .def LEFT,  0x1004B # escaped0 scancode 75 ←
 .def DOWN,  0x10050 # escaped0 scancode 80 ↓
@@ -52,7 +52,7 @@ gameLoop:
 	gettime [nextFrame]
 	add [nextFrame], 16
 
-	setpix [playerX], [playerY], 1
+	setpix [playerX], [playerY], PLAYERCOLOR
 
 	# Load dx, dy into r1, r2
 	mov r0, [playerDir]

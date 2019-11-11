@@ -3,6 +3,7 @@ const Keyboard = @import("keyboard.zig");
 const VGA = @import("vga.zig");
 const TextTerminal = @import("text-terminal.zig");
 const BlockAllocator = @import("block-allocator.zig").BlockAllocator;
+const Timer = @import("timer.zig");
 
 const ColorScheme = struct {
     background: VGA.Color,
@@ -18,14 +19,14 @@ const ColorScheme = struct {
 
 pub var colorScheme = ColorScheme{
     .background = 0,
-    .text = 7,
+    .text = 1,
     .comment = 2,
-    .mnemonic = 6,
-    .indirection = 5,
-    .register = 3,
-    .label = 30,
-    .directive = 9,
-    .cursor = 7,
+    .mnemonic = 3,
+    .indirection = 4,
+    .register = 5,
+    .label = 6,
+    .directive = 7,
+    .cursor = 8,
 };
 
 const Glyph = packed struct {
@@ -169,7 +170,7 @@ fn paint() void {
                 var x: u3 = 0;
                 while (x < 6) : (x += 1) {
                     if (font[safe_c].getPixel(x, y) == 1) {
-                        VGA.setPixel(6 * col + x, 8 * row + y, switch (highlighting) {
+                        VGA.setPixel(1 + 6 * col + x, 8 * row + y, switch (highlighting) {
                             .background => colorScheme.background,
                             .text => colorScheme.text,
                             .comment => colorScheme.comment,
@@ -191,7 +192,7 @@ fn paint() void {
             cursorCol += 1;
         }
 
-        if (line == cursorY) {
+        if (line == cursorY and (Timer.ticks % 1000 > 500)) {
             var y: u3 = 0;
             while (y < 7) : (y += 1) {
                 VGA.setPixel(6 * cursorCol, 8 * row + y, colorScheme.cursor);
@@ -203,6 +204,28 @@ fn paint() void {
 }
 
 pub extern fn run() noreturn {
+
+    // .background = 0,
+    // .text = 1,
+    // .comment = 2,
+    // .mnemonic = 3,
+    // .indirection = 4,
+    // .register = 5,
+    // .label = 6,
+    // .directive = 7,
+    // .cursor = 8,
+    VGA.loadPalette(comptime [_]VGA.RGB{
+        VGA.RGB.parse("#000000") catch unreachable, //  0
+        VGA.RGB.parse("#CCCCCC") catch unreachable, //  1
+        VGA.RGB.parse("#346524") catch unreachable, //  2
+        VGA.RGB.parse("#d27d2c") catch unreachable, //  3
+        VGA.RGB.parse("#d27d2c") catch unreachable, //  4
+        VGA.RGB.parse("#30346d") catch unreachable, //  5
+        VGA.RGB.parse("#d04648") catch unreachable, //  6
+        VGA.RGB.parse("#597dce") catch unreachable, //  7
+        VGA.RGB.parse("#ffffff") catch unreachable, //  8
+    });
+
     paint();
 
     while (true) {
@@ -312,19 +335,19 @@ pub extern fn run() noreturn {
             else if (key.char) |chr| {
                 if (chr != '\n') {
                     if (cursorY) |cursor| {
+                        cursor.length += 1;
                         if (cursorX < cursor.length) {
-                            std.mem.copyBackwards(u8, cursor.text[cursorX + 1 .. cursor.length], cursor.text[cursorX .. std.math.max(1, cursor.length) - 1]);
+                            std.mem.copyBackwards(u8, cursor.text[cursorX + 1 .. cursor.length], cursor.text[cursorX .. cursor.length - 1]);
                         }
                         cursor.text[cursorX] = chr;
-                        cursor.length += 1;
                         cursorX += 1;
                     }
                 }
             }
-            paint();
         }
 
         // Sleep and wait for interrupt
         asm volatile ("hlt");
+        paint();
     }
 }

@@ -23,8 +23,13 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-floopy.img: zig-cache/bin/kernel syslinux.cfg
+floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin src/splashspace.bin
+	zig build -Drelease-small=true
 	strip $<
+
+	echo "Kernel Size:"
+	wc -c zig-cache/bin/kernel
+
 	fallocate -l 1440K $@
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
@@ -33,7 +38,7 @@ floopy.img: zig-cache/bin/kernel syslinux.cfg
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
-zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin
+zig-cache/bin/kernel: src/stdfont.bin src/stdkbd_default.bin src/splashscreen.bin src/splashspace.bin
 	zig build $(ZIG_FLAGS)
 
 zig-cache/bin/assembler:
@@ -46,6 +51,9 @@ src/stdkbd_default.bin: ../data/kbd_ger_std.txt aux/mkkeymap.exe
 	mono aux/mkkeymap.exe $< $@
 
 src/splashscreen.bin: ../data/splashlogo.png aux/mkbitmap.exe
+	mono aux/mkbitmap.exe $< $@
+
+src/splashspace.bin: ../data/splashspace.png aux/mkbitmap.exe
 	mono aux/mkbitmap.exe $< $@
 
 assembler-test: ./zig-cache/bin/assembler

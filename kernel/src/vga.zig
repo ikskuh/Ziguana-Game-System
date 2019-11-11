@@ -223,6 +223,16 @@ pub const RGB = struct {
             .b = b,
         };
     }
+
+    pub fn parse(rgb: []const u8) !RGB {
+        if (rgb.len != 7) return error.InvalidLength;
+        if (rgb[0] != '#') return error.InvalidFormat;
+        return RGB{
+            .r = try std.fmt.parseInt(u8, rgb[1..3], 16),
+            .g = try std.fmt.parseInt(u8, rgb[3..5], 16),
+            .b = try std.fmt.parseInt(u8, rgb[5..7], 16),
+        };
+    }
 };
 const PALETTE_INDEX = 0x03c8;
 const PALETTE_DATA = 0x03c9;
@@ -231,17 +241,17 @@ const PALETTE_DATA = 0x03c9;
 pub fn loadPalette(palette: []const RGB) void {
     io.outb(PALETTE_INDEX, 0); // tell the VGA that palette data is coming.
     for (palette) |rgb| {
-        io.outb(PALETTE_DATA, rgb.r); // write the data
-        io.outb(PALETTE_DATA, rgb.g);
-        io.outb(PALETTE_DATA, rgb.b);
+        io.outb(PALETTE_DATA, rgb.r >> 2); // write the data
+        io.outb(PALETTE_DATA, rgb.g >> 2);
+        io.outb(PALETTE_DATA, rgb.b >> 2);
     }
 }
 
 pub fn setPaletteEntry(entry: u8, color: RGB) void {
     io.outb(PALETTE_INDEX, entry); // tell the VGA that palette data is coming.
-    io.outb(PALETTE_DATA, color.r); // write the data
-    io.outb(PALETTE_DATA, color.g);
-    io.outb(PALETTE_DATA, color.b);
+    io.outb(PALETTE_DATA, color.r >> 2); // write the data
+    io.outb(PALETTE_DATA, color.g >> 2);
+    io.outb(PALETTE_DATA, color.b >> 2);
 }
 
 // see: http://www.brackeen.com/vga/source/bc31/palette.c.html
