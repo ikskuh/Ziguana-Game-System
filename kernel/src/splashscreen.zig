@@ -76,7 +76,7 @@ pub extern fn run() noreturn {
         VGA.clear(0);
 
         for (stars) |*star| {
-            VGA.setPixel(star.x / oversampling, star.y / oversampling, @truncate(u4, 4 - star.speed));
+            VGA.setPixel(star.x / oversampling, star.y / oversampling, @truncate(u4, 1 + star.speed));
             star.x += oversampling * VGA.width;
             star.x -= star.speed;
             star.x %= oversampling * VGA.width;
