@@ -37,12 +37,16 @@ const TextLine = struct {
     length: usize,
 };
 
-var lines = BlockAllocator(TextLine, 4096).init();
+var lines : BlockAllocator(TextLine, 4096) = undefined;
 
 var firstLine: ?*TextLine = null;
 
 var cursorX: usize = 0;
 var cursorY: ?*TextLine = null;
+
+pub fn init() void {
+    lines = BlockAllocator(TextLine, 4096).init();
+}
 
 /// Saves all text lines to the given slice.
 /// Returns the portion of the slice actually written.

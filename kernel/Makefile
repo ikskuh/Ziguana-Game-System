@@ -27,8 +27,7 @@ floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default
 	zig build -Drelease-small=true
 	strip $<
 
-	echo "Kernel Size:"
-	wc -c zig-cache/bin/kernel
+	@echo "Kernel Size: " `wc -c zig-cache/bin/kernel`
 
 	fallocate -l 1440K $@
 	mkfs.vfat -n RETROS $@

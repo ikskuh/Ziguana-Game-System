@@ -406,8 +406,8 @@ pub fn main() anyerror!void {
         Terminal.println("[X");
 
         Terminal.print("[ ] Enable IRQs...\r");
+        Interrupts.disableAllIRQs();
         Interrupts.enableExternalInterrupts();
-        // Interrupts.enableAllIRQs();
         Terminal.println("[X");
     }
 
@@ -420,6 +420,7 @@ pub fn main() anyerror!void {
     Terminal.println("[X");
 
     Terminal.print("Initialize text editor...\r\n");
+    CodeEditor.init();
     try CodeEditor.load(developSource[0..]);
 
     Terminal.print("[ ] Initialize VGA...\r");
