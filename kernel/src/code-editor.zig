@@ -37,7 +37,7 @@ const TextLine = struct {
     length: usize,
 };
 
-var lines : BlockAllocator(TextLine, 4096) = undefined;
+var lines: BlockAllocator(TextLine, 4096) = undefined;
 
 var firstLine: ?*TextLine = null;
 
@@ -50,7 +50,7 @@ pub fn init() void {
 
 /// Saves all text lines to the given slice.
 /// Returns the portion of the slice actually written.
-pub fn saveTo(target: []u8) ![]u8 {
+pub fn saveTo(buffer: *std.Buffer) !void {
     var start = firstLine;
     while (start) |s| {
         if (s.previous != null) {
@@ -60,19 +60,10 @@ pub fn saveTo(target: []u8) ![]u8 {
         }
     }
 
-    var buffer = target;
-    var lenWritten: usize = 0;
-    while (start) |node| {
-        if (buffer.len < (node.length + 1))
-            return error.InputBufferTooSmall;
-        std.mem.copy(u8, buffer, node.text[0..node.length]);
-        buffer[node.length] = '\n';
-        buffer = buffer[node.length + 1 ..];
-        lenWritten += node.length + 1;
-        start = node.next;
+    while (start) |node| : (start = node.next) {
+        try buffer.append(node.text[0..node.length]);
+        try buffer.append("\n");
     }
-
-    return target[0..lenWritten];
 }
 
 pub fn load(source: []const u8) !void {

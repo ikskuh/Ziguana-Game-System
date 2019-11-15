@@ -1,0 +1,75 @@
+Resourcentypen:
+- Image / Sprite
+	- Freie Größe, 4bpp
+	- Hat eine "Standard-Palette" zugeordnet (für korrekte Darstellung)
+- Dataset
+	- BLOB mit Datenformat
+	- 1D: Länge, 2D: Breite×Höhe
+	- Datenformat: U8, U16, U32
+- Code File
+	- []u8
+- Paletten
+	- 16 Einträge mit RGB666
+- Audio
+	- soundhw sb16,adlib
+	- custom ADSR synth
+- Save Games
+	- Spezielle Resource
+	- Max. 3 Stück
+	- Sind nur als "benötigen N byte" definiert
+
+Daten liegen als "linked list" auf der Diskette,
+vorne ist ein Header:
+
+Header {
+	magic: u32, // 0x56ac65d5
+	version: u32, // 1
+	name: [32]u8, // zero-terminated or full
+	saveGameSize: u32,
+}
+
+Code {
+	length: u32,
+	data: []u8,
+}
+
+Resource {
+	type: u8,
+	length: u32,
+	name: []u8,
+	union {
+		EndOfList{},
+		Palette { [16]RGB }
+		Image {
+			w: u16,
+			h: u16,
+			pal: u8,
+			ptr: []u4
+		}
+		Save Game { [N]u8 },
+		Music { ??? },
+		SFX { ??? },
+		DataSet {
+			format: enum{u8,16,u32},
+			width: u32, // if ≤ 1 ⇒ 1D
+			height: u32
+			data: []u8
+		}
+	}
+}
+
+
+Mehr als eine Palette erlauben?
++ Pro: Bequemeres Palette wechseln
+- Con: Höhere Komplexität, schwerer zu verwenden
+=> Mehr als eine Palette erlauben
+
+Vollfarb-Palette (256 einträge) erlauben?
++ Pro: Maximale Ausreizung
+- Con: Wie soll die UI im Bildeditor aussehen? Nutzt ja selbe Palette
+=> Nur 16 Farben pro Bilddatei
+
+Mehr als ein Code File erlauben?
++ Pro: Bessere Strukturierung
+- Con: Komplexere Implementierung, kein "Go To Definition"
+=> Einzelnes Codestück

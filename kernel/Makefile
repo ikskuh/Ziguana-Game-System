@@ -1,9 +1,9 @@
-
 QEMU_FLAGS+=\
 	-serial stdio \
 	-vga std \
 	-no-reboot \
 	-no-shutdown \
+	-soundhw ac97 \
 	-m 64M \
 	-d guest_errors#,int,cpu_reset
 

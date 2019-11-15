@@ -4,30 +4,13 @@ const PA = @import("pa-simple.zig");
 //     7  3 4 2
 //     N  I V E
 const song_text_form =
-    \\C-3 1
+    \\D-3 0
+    \\E-3
+    \\F-3  
+    \\G-3
+    \\A-3
     \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\ = 
-    \\
-    \\
-    \\
-    \\
-    \\
-    \\
-    \\D-3 0 C 0
-    \\E-3 0 C
-    \\F-3 0
-    \\G-3     0
-    \\A-3   C 0
-    \\ = 
-    \\A-3 0   0
+    \\A-3
     \\ = 
     \\B-3
     \\B-3
@@ -53,6 +36,76 @@ const song_text_form =
     \\
 ;
 
+const song_drum_form =
+    \\A-4 3 4
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+    \\A-4 3
+    \\
+    \\A-4 2
+    \\
+;
+
+const song_pad_form =
+    \\D-2 1 8
+    \\ = 
+    \\ = 
+    \\
+    \\C-2
+    \\ = 
+    \\ = 
+    \\
+    \\E-2
+    \\ = 
+    \\ = 
+    \\ = 
+    \\ = 
+    \\ = 
+    \\ = 
+    \\
+    \\C-2
+    \\ = 
+    \\ = 
+    \\
+    \\B-1
+    \\ = 
+    \\ = 
+    \\
+    \\C-2
+    \\ = 
+    \\ = 
+    \\
+    \\E-2
+    \\ = 
+    \\ = 
+    \\
+;
+
 pub fn loadChannelFromText(allocator: *std.mem.Allocator, source: []const u8) ![]Event {
     var list = std.ArrayList(Event).init(allocator);
     var iterator = std.mem.separate(source, "\n");
@@ -61,7 +114,6 @@ pub fn loadChannelFromText(allocator: *std.mem.Allocator, source: []const u8) ![
     var lastVolume: u4 = 0xC;
 
     while (iterator.next()) |line| {
-        std.debug.warn("'{}'\n", line);
         switch (line.len) {
             0, 3, 5, 7, 9 => {},
             else => return error.InvalidFormat,
@@ -232,8 +284,52 @@ const Instrument = struct {
     pub fn synthesize(this: Instrument, time: f32, note: Note, on_time: f32, off_time: ?f32) f32 {
         const env = this.envelope.getAmplitude(time, on_time, off_time);
 
-        return env * (oscillate(time, note.toFreq(), this.waveform));
+        // 70ies synth ahoi!
+        return env * oscillate(time, note.toFreq(), this.waveform);
     }
+};
+
+const instruments = [_]Instrument{
+    // "Piano"
+    Instrument{
+        .waveform = .triangle,
+        .envelope = Envelope{
+            .attackTime = 0.005,
+            .decayTime = 0.4,
+            .releaseTime = 0.0,
+            .sustainLevel = 0.0,
+        },
+    },
+    // "Pad"
+    Instrument{
+        .waveform = .sine,
+        .envelope = Envelope{
+            .attackTime = 0.3,
+            .decayTime = 0.3,
+            .releaseTime = 0.2,
+            .sustainLevel = 0.7,
+        },
+    },
+    // "Snare Drum"
+    Instrument{
+        .waveform = .noise,
+        .envelope = Envelope{
+            .attackTime = 0.0,
+            .decayTime = 0.1,
+            .releaseTime = 0.0,
+            .sustainLevel = 0.0,
+        },
+    },
+    // "Bass Drum"
+    Instrument{
+        .waveform = .noise,
+        .envelope = Envelope{
+            .attackTime = 0.05,
+            .decayTime = 0.1,
+            .releaseTime = 0.0,
+            .sustainLevel = 0.0,
+        },
+    },
 };
 
 const Channel = struct {
@@ -257,29 +353,35 @@ const Channel = struct {
             return 0.0;
         const time_per_beat = bpmToSecondsPerBeat(tempo);
         const trackIndex = @floatToInt(usize, std.math.floor(time / time_per_beat));
-        if (trackIndex >= this.events.len)
-            return 0.0;
 
         const start_of_note = time_per_beat * @intToFloat(f32, trackIndex);
 
-        const event = this.events[trackIndex];
+        if (trackIndex < this.events.len) {
+            const event = this.events[trackIndex];
 
-        const is_on = (event.volume > 0);
-        if (is_on) {
-            if (event.note.index != Note.repeated.index) {
-                this.currentNote = CurrentNote{
-                    .note = event.note,
-                    .on_time = start_of_note,
-                    .off_time = null,
-                    .instrument = event.instr,
-                };
+            const is_on = (event.volume > 0);
+            if (is_on) {
+                if (event.note.index != Note.repeated.index) {
+                    this.currentNote = CurrentNote{
+                        .note = event.note,
+                        .on_time = start_of_note,
+                        .off_time = null,
+                        .instrument = event.instr,
+                    };
+                }
+                this.currentVolume = @intToFloat(f32, event.volume) / @intToFloat(f32, std.math.maxInt(@typeOf(event.volume)));
+            } else if (this.currentNote) |*cn| {
+                if (cn.off_time == null) {
+                    std.debug.assert(start_of_note > cn.on_time);
+                    cn.off_time = start_of_note;
+                }
             }
-            this.currentVolume = @intToFloat(f32, event.volume) / @intToFloat(f32, std.math.maxInt(@typeOf(event.volume)));
-        } else if (this.currentNote) |*cn| {
-            if (cn.off_time == null) {
-                std.debug.assert(start_of_note > cn.on_time);
-                cn.off_time = start_of_note;
-                std.debug.warn("turn off @ {}: {}\n", time, this.currentNote);
+        } else {
+            if (this.currentNote) |*cn| {
+                if (cn.off_time == null) {
+                    std.debug.assert(start_of_note > cn.on_time);
+                    cn.off_time = start_of_note;
+                }
             }
         }
 
@@ -310,29 +412,6 @@ pub fn main() anyerror!void {
 
     std.debug.warn("Starting playback...\n");
 
-    const instruments = [_]Instrument{
-        // "Piano"
-        Instrument{
-            .waveform = .triangle,
-            .envelope = Envelope{
-                .attackTime = 0.1,
-                .decayTime = 0.5,
-                .releaseTime = 0.1,
-                .sustainLevel = 0.2,
-            },
-        },
-        // "Pad"
-        Instrument{
-            .waveform = .triangle,
-            .envelope = Envelope{
-                .attackTime = 0.8,
-                .decayTime = 0.3,
-                .releaseTime = 0.9,
-                .sustainLevel = 0.8,
-            },
-        },
-    };
-
     // render ADSR
     if (false) {
         var t: f32 = 0.0;
@@ -352,10 +431,16 @@ pub fn main() anyerror!void {
         }
     }
 
-    var channel0 = Channel{
+    var channels = [_]Channel{ Channel{
         .instruments = instruments,
         .events = try loadChannelFromText(std.heap.direct_allocator, song_text_form),
-    };
+    }, Channel{
+        .instruments = instruments,
+        .events = try loadChannelFromText(std.heap.direct_allocator, song_drum_form),
+    }, Channel{
+        .instruments = instruments,
+        .events = try loadChannelFromText(std.heap.direct_allocator, song_pad_form),
+    } };
 
     // Plays "Alle meine Entchen" at 120 BPM
     // One Event is 1 eighth (1/8)
@@ -370,16 +455,24 @@ pub fn main() anyerror!void {
             const t = (time + @intToFloat(f32, i) / @as(f32, sampleSpec.rate));
 
             if (t >= 0) {
-                sample.* = channel0.synthesize(t, tempo);
+                sample.* = 0;
+                for (channels) |*channel| {
+                    sample.* += channel.synthesize(t, tempo);
+                }
             } else {
                 sample.* = 0.0;
             }
+
+            // limiter:
+            const K = 1.0;
+            sample.* = std.math.copysign(f32, 1.0 + -std.math.pow(f32, std.math.e, -K * std.math.fabs(sample.*)), sample.*);
+            // sample.* *= 0.8;
         }
         time += @as(f32, buffer.len) / @as(f32, sampleSpec.rate);
 
         try stream.write(@sliceToBytes(buffer[0..]));
 
-        if (time >= @intToFloat(f32, channel0.events.len) * bpmToSecondsPerBeat(tempo))
+        if (time >= 1.0 + @intToFloat(f32, channels[0].events.len) * bpmToSecondsPerBeat(tempo))
             break;
     }
 }
