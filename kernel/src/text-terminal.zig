@@ -29,7 +29,7 @@ pub const Char = packed struct {
 pub const WIDTH = 80;
 pub const HEIGHT = 25;
 
-var videoBuffer = @intToPtr(*volatile [HEIGHT][WIDTH]Char, 0xB8000);
+var videoBuffer = @intToPtr(*[HEIGHT][WIDTH]Char, 0xB8000);
 
 var currentForeground: Color = .lightGray;
 var currentBackground: Color = .black;
@@ -115,7 +115,13 @@ pub fn put(c: u8) void {
         '\r' => cursorX = 0,
         '\n' => newline(),
         '\t' => {
+            const oldpos = cursorX;
             cursorX = (cursorX & ~@as(u16, 3)) + 4;
+            // std.mem.set(Char, videoBuffer[cursorY][oldpos..cursorX], Char{
+            //     .char = ' ',
+            //     .foreground = currentForeground,
+            //     .background = currentBackground,
+            // });
             if (cursorX >= WIDTH)
                 newline();
         },

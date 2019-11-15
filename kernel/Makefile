@@ -3,13 +3,18 @@ QEMU_FLAGS+=\
 	-vga std \
 	-no-reboot \
 	-no-shutdown \
+	-soundhw sb16 \
 	-soundhw ac97 \
+	-soundhw hda \
 	-m 64M \
 	-d guest_errors#,int,cpu_reset
 
 ZIG_FLAGS+=#-Drelease-fast=true
 
 all: boot.img
+
+%.img\:flash: %.img
+	sudo dd if=$< of=/dev/disk/by-label/RETROS status=progress
 
 run: boot.img
 	qemu-system-i386 $(QEMU_FLAGS) -hda $< | aux/stacktrace_to_line.sh

@@ -1,7 +1,7 @@
 #!/bin/bash
-while read line
+while IFS= read -r line
 do
-	echo $line
+	printf '%s\n' "$line"
 	if echo $line | grep -q 'Stack:'; then
 		addr2line -e zig-cache/bin/kernel $(echo $line | cut -d ':' -f 2)
 	fi
