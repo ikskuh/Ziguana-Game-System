@@ -4,15 +4,12 @@ on: [push]
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v1
-    - name: Run a one-line script
-      run: echo Hello, world!
-    - name: Run a multi-line script
-      run: |
-        echo Add other actions to build,
-        echo test, and deploy your project.
-        ls /usr/bin/
+    - uses: actions/checkout@v, mstksg/get-package@v1
+    - with:
+        apt-get: mono-mcs mtools syslinux-common
+    - name: Build boot.img
+      run: make -C kernel boot.img
+    - name: Build floppy.img
+      run: make -C kernel floppy.img
