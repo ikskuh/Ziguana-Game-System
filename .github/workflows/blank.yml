@@ -6,7 +6,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v, mstksg/get-package@v1
+    - uses: actions/checkout@v
+    - uses: mstksg/get-package@v1
       with:
         apt-get: mono-mcs mtools syslinux-common
     - name: Build boot.img
