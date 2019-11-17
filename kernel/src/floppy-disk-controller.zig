@@ -291,7 +291,7 @@ pub fn readBlocks(firstBlock: usize, buffer: []u8) IsaOrFdcError!void {
 
     TextTerminal.println("block count: {}", blockCount);
 
-    var iter = BlockIterator(.mutable).init(firstBlock, buffer, FLOPPY_SECTOR_SIZE) catch unreachable; // we check already if block size is aligned
+    var iter = BlockIterator(@import("block-iterator.zig").IteratorKind.mutable).init(firstBlock, buffer, FLOPPY_SECTOR_SIZE) catch unreachable; // we check already if block size is aligned
 
     while (iter.next()) |block| {
         var i: usize = 0;
@@ -632,8 +632,7 @@ fn floppy_read_data() Error!u8 {
 
         // Pruefen ob der Kontroller bereit ist, und Daten zum abholen
         // bereitliegen.
-        if ((msr & (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) == (FLOPPY_MSR_RQM |FLOPPY_MSR_DIO))
-        {
+        if ((msr & (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) == (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) {
             return floppy_read_byte(FLOPPY_REG_DATA);
         }
         Timer.wait(FLOPPY_READ_DATA_DELAY);

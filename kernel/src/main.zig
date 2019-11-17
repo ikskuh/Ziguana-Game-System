@@ -577,25 +577,25 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
 
     const first_trace_addr = @returnAddress();
 
-    const dwarf_info: ?*std.debug.DwarfInfo = getSelfDebugInfo() catch |err| blk: {
-        Terminal.println("unable to get debug info: {}\n", @errorName(err));
-        break :blk null;
-    };
+    // const dwarf_info: ?*std.debug.DwarfInfo = getSelfDebugInfo() catch |err| blk: {
+    //     Terminal.println("unable to get debug info: {}\n", @errorName(err));
+    //     break :blk null;
+    // };
     var it = std.debug.StackIterator.init(first_trace_addr);
     while (it.next()) |return_address| {
         Terminal.println("Stack: {x}", return_address);
-        if (dwarf_info) |di| {
-            std.debug.printSourceAtAddressDwarf(
-                di,
-                serial_out_stream,
-                return_address,
-                true, // tty color on
-                printLineFromFile,
-            ) catch |err| {
-                Terminal.println("missed a stack frame: {}\n", @errorName(err));
-                continue;
-            };
-        }
+        // if (dwarf_info) |di| {
+        //     std.debug.printSourceAtAddressDwarf(
+        //         di,
+        //         serial_out_stream,
+        //         return_address,
+        //         true, // tty color on
+        //         printLineFromFile,
+        //     ) catch |err| {
+        //         Terminal.println("missed a stack frame: {}\n", @errorName(err));
+        //         continue;
+        //     };
+        // }
     }
 
     haltForever();

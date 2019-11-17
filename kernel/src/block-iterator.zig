@@ -1,9 +1,11 @@
 const std = @import("std");
 
-pub fn BlockIterator(kind: enum {
+pub const IteratorKind = enum {
     mutable,
     constant,
-}) type {
+};
+
+pub fn BlockIterator(kind: IteratorKind) type {
     return struct {
         const This = @This();
         const Slice = switch (kind) {
@@ -32,9 +34,9 @@ pub fn BlockIterator(kind: enum {
         pub fn next(this: *This) ?Block {
             if (this.offset >= this.slice.len)
                 return null;
-            var block = Block {
-              .block = this.block,
-              .slice = this.slice[this.offset .. this.offset + this.blockSize],
+            var block = Block{
+                .block = this.block,
+                .slice = this.slice[this.offset .. this.offset + this.blockSize],
             };
             this.offset += this.blockSize;
             this.block += 1;
@@ -42,8 +44,8 @@ pub fn BlockIterator(kind: enum {
         }
 
         pub const Block = struct {
-          slice: Slice,
-          block: usize,
-        }; 
+            slice: Slice,
+            block: usize,
+        };
     };
 }
