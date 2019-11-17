@@ -12,11 +12,6 @@ function die()
 	exit 1
 }
 
-if [ ! -d "${ROOT}" ]; then
-	echo "Root directory ${ROOT} does not exist!"
-	exit 1
-fi
-
 REPO="${TMPDIR}/zig-repo.json"
 
 mkdir -p "${TMPDIR}"
