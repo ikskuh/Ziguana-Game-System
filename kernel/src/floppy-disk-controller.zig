@@ -1,708 +1,550 @@
-const IO = @import("io.zig");
-const TextTerminal = @import("text-terminal.zig");
 const std = @import("std");
 
+const IO = @import("io.zig");
+const TextTerminal = @import("text-terminal.zig");
 const CMOS = @import("cmos.zig");
 const ISA_DMA = @import("isa-dma.zig");
 const Interrupts = @import("interrupts.zig");
 const Timer = @import("timer.zig");
+const CHS = @import("chs.zig");
 
 const BlockIterator = @import("block-iterator.zig").BlockIterator;
 
-const use_dma = true;
+pub const microHDFloppyLayout = CHS.DriveLayout{
+    .headCount = 2,
+    .cylinderCount = 80,
+    .sectorCount = 18,
+};
 
-const FloppyID = enum(u2) {
+// this file follows roughly the following links:
+// https://wiki.osdev.org/FDC
+// https://www.lowlevel.eu/wiki/Floppy_Disk_Controller
+
+pub const DriveName = enum(u2) {
     A = 0,
     B = 1,
     C = 2,
     D = 3,
 };
 
-const Error = error{
-    DriveNotAvailable,
-    NoDriveSelected,
-    GenericFailure,
-    Timeout,
-    UnalignedBufferSize,
-    InvalidBufferSize,
-};
-
-const MotorState = enum {
-    on,
-    off,
+const IoMode = enum {
+    portIO,
+    dma,
 };
 
 const Drive = struct {
-    id: u2,
     available: bool,
-    current_status: u8,
-    current_cylinder: u8,
-    motor: MotorState = .off,
+    id: u2,
+    ioMode: IoMode,
 };
 
-var floppyDrives: [4]Drive = [_]Drive{Drive{
-    .id = undefined,
-    .available = false,
-    .current_status = undefined,
-    .current_cylinder = undefined,
-}} ** 4;
+var allDrives: [4]Drive = undefined;
 
 var currentDrive: ?*Drive = null;
 
-fn getCurrentDrive() Error!*Drive {
-    if (currentDrive) |drive| {
-        return drive;
-    } else {
-        return error.NoDriveSelected;
-    }
+fn getCurrentDrive() !*Drive {
+    const drive = currentDrive orelse return error.NoDriveSelected;
+    if (!drive.available)
+        return error.DriveNotAvailable;
+    return drive;
 }
 
-const CHS = struct {
-    cylinder: u8,
-    head: u8,
-    sector: u8,
-};
-
-// Eine LBA in eine Adresse als CHS umwandeln
-fn lba2chs(lba: u32) CHS {
-    return CHS{
-        .sector = @intCast(u8, (lba % FLOPPY_SECTORS_PER_TRACK) + 1),
-        .cylinder = @intCast(u8, (lba / FLOPPY_SECTORS_PER_TRACK) / FLOPPY_HEAD_COUNT),
-        .head = @intCast(u8, (lba / FLOPPY_SECTORS_PER_TRACK) % FLOPPY_HEAD_COUNT),
-    };
-}
-
+/// discovers and initializes all floppy drives
 pub fn init() !void {
-    const disks = CMOS.getFloppyDrives();
+    Interrupts.setIRQHandler(6, handleIRQ6);
+    Interrupts.enableIRQ(6);
 
-    for (floppyDrives) |*drive, i| {
-        drive.id = @intCast(u2, i);
-        drive.available = switch (i) {
-            0 => if (disks.A) |t| t == .microHD else false,
-            1 => if (disks.B) |t| t == .microHD else false,
-            else => false,
+    const drives = CMOS.getFloppyDrives();
+
+    for (allDrives) |*drive, i| {
+        drive.* = Drive{
+            .available = switch (i) {
+                0 => if (drives.A) |d| d == .microHD else false,
+                1 => if (drives.B) |d| d == .microHD else false,
+                2 => false,
+                3 => false,
+                else => unreachable,
+            },
+            .id = @intCast(u2, i),
+            .ioMode = .dma,
         };
     }
 
-    Interrupts.setIRQHandler(6, handleIRQ);
-    Interrupts.enableIRQ(6);
+    // The bottom 2 bits specify the data transfer rate to/from the drive.
+    // You want both bits set to zero for a 1.44MB or 1.2MB floppy drive.
+    // So generally, you want to set CCR to zero just once, after bootup
+    // (because the BIOS may not have done it, unless it booted a floppy disk).
+    writeRegister(.datarateSelectRegister, 0x00);
 
-    try floppy_reset_controller();
+    if ((try execVersion()) != 0x90) {
+        // controller isn't a 82077AA
+        return error.ControllerNotSupported;
+    }
 
-    for (floppyDrives) |drive| {
+    // Reset the controller
+    try resetController();
+
+    // Implied seek, fifo enabled, polling disabled, 8 byte threshold, manufacturer precompensation
+    try execConfigure(true, false, true, 8, 0);
+
+    // Lock down configuration over controller resets
+    try execLock(true);
+
+    for (allDrives) |*drive| {
         if (!drive.available)
             continue;
 
-        try floppy_drive_select(@intToEnum(FloppyID, drive.id));
+        try selectDrive(drive);
 
-        try floppy_drive_set_dataRate();
+        try setMotorPower(.on);
 
-        try floppy_drive_int_sense();
-        try floppy_drive_specify();
-        try floppy_drive_recalibrate();
+        // wait for the motor to spin up
+        Timer.wait(200);
+
+        try execRecalibrate();
+
+        try setMotorPower(.off);
     }
 }
 
-var irq_count: u32 = 0;
+/// reads
+pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
+    try selectDrive(&allDrives[@enumToInt(name)]);
 
-fn handleIRQ(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
-    var cnt = @atomicRmw(u32, &irq_count, .Add, 1, .SeqCst);
-    return cpu;
-}
+    var drive = try getCurrentDrive();
 
-fn floppy_reset_irqcnt() void {
-    _ = @atomicRmw(u32, &irq_count, .Xchg, 0, .Release);
-}
+    try setMotorPower(.on);
 
-fn floppy_wait_irq(timeout: u32) Error!void {
-    // TODO: Timeout
-    while (@atomicLoad(u32, &irq_count, .Acquire) == 0) {
-        asm volatile ("hlt");
+    // turn motor off after successful or failed operation
+    defer setMotorPower(.off) catch unreachable; // error is only when getCurrentDrive() fails and we called that already :)
+
+    Timer.wait(200); // Let motor spin up a bit
+
+    var iterator = try BlockIterator(.mutable).init(startingBlock, data, 512);
+    while (iterator.next()) |block| {
+        var retries: usize = 5;
+        var lastError: anyerror = undefined;
+        while (retries > 0) : (retries -= 1) {
+            // readBlock(block.block, block.slice) catch |err| {
+            //     lastError = err;
+            //     continue;
+            // };
+            try readBlock(block.block, block.slice);
+            break;
+        }
+        if (retries == 0)
+            return lastError;
     }
 }
 
-fn floppy_reset_controller() Error!void {
-    var dor = floppy_read_byte(FLOPPY_REG_DOR);
+fn readBlock(block: u32, buffer: []u8) !void {
+    const chs = try CHS.lba2chs(microHDFloppyLayout, block);
 
-    floppy_reset_irqcnt();
+    execSeek(@intCast(u8, chs.cylinder), @intCast(u8, chs.head), 1000) catch {
+        try execRecalibrate();
+        try execSeek(@intCast(u8, chs.cylinder), @intCast(u8, chs.head), 1000);
+    };
 
-    // No-Reset Bit loeschen
-    dor &= ~FLOPPY_DOR_NRST;
-    floppy_write_byte(FLOPPY_REG_DOR, dor);
-
-    // Wir wollen Interrupts bei Datentransfers
-    dor |= FLOPPY_DOR_DMAGATE;
-
-    // No-Reset Bit wieder setzen
-    dor |= FLOPPY_DOR_NRST;
-    floppy_write_byte(FLOPPY_REG_DOR, dor);
-
-    try floppy_wait_irq(FLOPPY_RESET_TIMEOUT);
+    try execRead(chs, buffer);
 }
 
-pub fn selectDrive(id: FloppyID) Error!void {
-    try floppy_drive_select(id);
+fn resetController() !void {
+    var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+
+    dor.disableReset = false;
+    dor.irqEnabled = true;
+
+    resetIrqCounter();
+    writeRegister(.digitalOutputRegister, 0x00);
+
+    dor.disableReset = true;
+    writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
+
+    try waitForInterrupt(250);
 }
 
-fn floppy_drive_select(id: FloppyID) Error!void {
-    const drive = &floppyDrives[@enumToInt(id)];
+const MotorPower = enum(u1) {
+    off = 0,
+    on = 1,
+};
+
+fn setMotorPower(power: MotorPower) !void {
+    var drive = try getCurrentDrive();
+
+    var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+    switch (drive.id) {
+        0 => dor.motorA = (power == .on),
+        1 => dor.motorB = (power == .on),
+        2 => dor.motorC = (power == .on),
+        3 => dor.motorD = (power == .on),
+    }
+    writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
+}
+
+fn selectDrive(drive: *Drive) !void {
     if (!drive.available)
         return error.DriveNotAvailable;
 
-    var dor = floppy_read_byte(FLOPPY_REG_DOR);
-
-    dor &= ~FLOPPY_DOR_DRIVE_MASK;
-    dor |= @enumToInt(id);
-
-    floppy_write_byte(FLOPPY_REG_DOR, dor);
+    var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+    dor.driveSelect = drive.id;
+    writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
 
     currentDrive = drive;
+
+    // set 500kbit/s
+    writeRegister(.datarateSelectRegister, 0x00);
+
+    // SRT = "Step Rate Time" = time the controller should wait for the head assembly
+    // to move between successive cylinders. A reasonable amount of time
+    // to allow for this is 3ms for modern 3.5 inch floppy drives. A very safe amount would be 6 to 8ms.
+    // To calculate the value for the SRT setting from the given time, use
+    // "SRT_value = 16 - (milliseconds * data_rate / 500000)".
+    // For a 1.44 MB floppy and 8ms delay this gives "SRT_value = 16 - (8 * 500000 / 500000)" or a parameter value of 8.
+
+    // HLT = "Head Load Time" = time the controller should wait between activating a head and actually performing a read/write.
+    // A reasonable value for this is around 10ms. A very safe amount would be 30ms.
+    // To calculate the value for the HLT setting from the given time, use
+    // "HLT_value = milliseconds * data_rate / 1000000".
+    // For a 1.44 MB floppy and a 10ms delay this gives "HLT_value = 10 * 500000 / 1000000" or 5.
+
+    // HUT = "Head Unload Time" = time the controller should wait before deactivating the head.
+    // To calculate the value for the HUT setting from a given time, use
+    // "HUT_value = milliseconds * data_rate / 8000000".
+    // For a 1.44 MB floppy and a 240 mS delay this gives "HUT_value = 24 * 500000 / 8000000" or 15.
+    // However, it seems likely that the smartest thing to do is just to set the value to 0 (which is the maximum in any mode).
+
+    try execSpecify(drive.ioMode == .dma, 8, 5, 0);
+
+    // Bugfix: Somehow specify deletes the DMA enabled bit!
+    dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+    dor.irqEnabled = true;
+    writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
 }
 
-fn floppy_drive_set_dataRate() Error!void {
-    // TODO: Wie kriegen wir hier das Optimum raus?
-    // Mit 500Kb/s sind wir auf der sicheren Seite
-    const dsr = FLOPPY_DSR_500KBPS;
-    floppy_write_byte(FLOPPY_REG_DSR, dsr);
-}
-
-fn floppy_drive_int_sense() Error!void {
+fn execSeek(cylinder: u8, head: u8, timeout: usize) !void {
     var drive = try getCurrentDrive();
 
-    // Befehl senden
-    // Byte 0:  FLOPPY_CMD_INT_SENSE
-    try floppy_write_data(FLOPPY_CMD_INT_SENSE);
+    try startCommand(.seek, false, false, false);
 
-    // Ergebnis abholen
-    // Byte 0:  Status 0
-    // Byte 1:  Zylinder auf dem sich der Kopf gerade befindet
-    drive.current_status = try floppy_read_data();
-    drive.current_cylinder = try floppy_read_data();
-}
+    try writeFifo(head << 2 | drive.id);
+    try writeFifo(cylinder);
 
-// Specify
-// Diese Funktion konfiguriert den Kontroller im Bezug auf verschiedene delays.
-// Ist im allgemeinen sehr schlecht dokumentiert. Die Erklaerungen basieren
-// groesstenteils auf http://www.osdev.org/wiki/Floppy_Disk_Controller
-fn floppy_drive_specify() Error!void {
-    // Die head unload time legt fest, wie lange der Kontroller nach einem
-    // Lese- oder Schreibvorgang warten soll, bis der den Kopf wieder in den
-    // "entladenen" Status gebracht wird. Vermutlich wird diese Aktion nicht
-    // ausgefuehrt, wenn dazwischen schon wieder ein Lesevorgang eintrifft,
-    // aber das ist nicht sicher. Dieser Wert ist abhaengig von der Datenrate.
-    // Laut dem OSdev-Wiki kann hier fuer die bestimmung des optimalen Wertes
-    // die folgende Berechnung benutzt werden:
-    //      head_unload_time = seconds * data_rate / 8000
-    // Als vernuenftiger Wert fuer die Zeit, die gewartet werden soll, wird
-    // dort 240ms vorgeschlagen. Wir uebernehmen das hier mal so.
-    const head_unload_time: u8 = 240 * FLOPPY_DATA_RATE / 8000 / 1000;
+    try waitForInterrupt(5000); // wait a long time for the seek to happen
 
-    // Die head load time ist die Zeit, die der Kontroller warten soll, nachdem
-    // er den Kopf zum Lesen oder Schreiben positioniert hat, bis der Kopf
-    // bereit ist. Auch dieser Wert haengt wieder von der Datenrate ab.
-    // Der optimale Wert kann nach OSdev-Wiki folgendermassen errechnet werden:
-    //      head_load_time = seconds * data_rate / 1000
-    // Die vorgeschlagene Zeit liegt bei 10 Millisekunden.
-    const head_load_time: u8 = 20 * FLOPPY_DATA_RATE / 1000 / 1000;
+    try execSenseInterrupt(false);
 
-    // Mit der step rate time wird die Zeit bestimmt, die der Kontroller warten
-    // soll, wenn der den Kopf zwischen den einzelnen Spuren bewegt. Wozu das
-    // genau dient konnte ich bisher nirgends finden.
-    // Der hier einzustellende Wert ist genau wie die vorderen 2 abhaengig von
-    // der Datenrate.
-    // Aus dem OSdev-Wiki stammt die folgende Formel fuer die Berechnung:
-    //      SRT_value = 16 - (milliseconds * data_rate / 500000)
-    // Fuer die Zeit wird 8ms empfohlen.
-    const step_rate_time: u8 = 16 - 8 * FLOPPY_DATA_RATE / 500 / 1000;
+    const end = Timer.ticks + timeout;
+    while (Timer.ticks < end) {
+        const msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
 
-    // Befehl und Argumente Senden
-    // Byte 0:  FLOPPY_CMD_SPECIFY
-    // Byte 1:  Bits 0 - 3: Head unload time
-    //          Bits 4 - 7: Step rate time
-    // Byte 2:  Bit 0: No DMA; Deaktiviert DMA fuer dieses Geraet
-    //          Bit 1 - 7: Head load time
-    try floppy_write_data(FLOPPY_CMD_SPECIFY);
-    try floppy_write_data((head_unload_time & 0xF) | (step_rate_time << 4));
-    if (use_dma) {
-        try floppy_write_data((head_load_time << 1));
-    } else {
-        try floppy_write_data((head_load_time << 1) | 1);
-    }
-
-    // Rueckgabewerte gibt es keine
-}
-
-// Neu kalibrieren
-// Diese Funktion hilft vorallem dabei, Fehler die beim Seek, Read oder auch
-// write auftreten auftreten zu beheben.
-fn floppy_drive_recalibrate() Error!void {
-    var drive = try getCurrentDrive();
-    // Wenn das neu kalibrieren fehlschlaegt, wird mehrmals probiert.
-
-    var i: usize = 0;
-    while (i < FLOPPY_RECAL_TRIES) : (i += 1) {
-        floppy_reset_irqcnt();
-
-        // Befehl und Attribut senden
-        // Byte 0:  FLOPPY_CMD_RECALIBRATE
-        // Byte 1:  Bit 0 und 1: Geraetenummer
-        try floppy_write_data(FLOPPY_CMD_RECALIBRATE);
-        try floppy_write_data(drive.id);
-
-        // Auf den IRQ warten, wenn der nicht kommt, innerhalb der angebenen
-        // Frist, stimmt vermutlich etwas nicht.
-        floppy_wait_irq(FLOPPY_RECAL_TIMEOUT) catch |err| {
-            if (err == error.Timeout)
-                continue;
-            return err;
+        const isSeeking = switch (drive.id) {
+            0 => msr.driveAseeking,
+            1 => msr.driveBseeking,
+            2 => msr.driveCseeking,
+            3 => msr.driveDseeking,
         };
-
-        // Rueckgabewerte existieren nicht.
-
-        // Aktualisiert current_cylinder damit geprueft werden kann, ob
-        // erfolgreich neu kalibriert wurde und signalisiert dem FDC, dass der
-        // IRQ behandelt wurde.
-        try floppy_drive_int_sense();
-
-        // Nach erfolgreichem neukalibrieren steht der Kopf ueber dem
-        // Zylinder 0.
-        if (drive.current_cylinder == 0) {
-            return;
-        }
+        if (!isSeeking and !msr.commandBusy)
+            return; // yay, we're done!
     }
-
-    return error.GenericFailure;
+    return error.Timeout;
 }
 
-comptime {
-    _ = selectDrive;
-    _ = readBlocks;
-    _ = writeBlocks;
-}
-
-const IsaOrFdcError = ISA_DMA.Error || Error;
-
-// Sektoren einlesen
-pub fn readBlocks(firstBlock: usize, buffer: []u8) IsaOrFdcError!void {
-    if (!std.mem.isAligned(buffer.len, FLOPPY_SECTOR_SIZE))
-        return error.UnalignedBufferSize;
-
-    const blockCount = buffer.len / FLOPPY_SECTOR_SIZE;
-
-    TextTerminal.println("block count: {}", blockCount);
-
-    var iter = BlockIterator(@import("block-iterator.zig").IteratorKind.mutable).init(firstBlock, buffer, FLOPPY_SECTOR_SIZE) catch unreachable; // we check already if block size is aligned
-
-    while (iter.next()) |block| {
-        var i: usize = 0;
-        var lastErr: IsaOrFdcError = undefined;
-        while (i < 5) : (i += 1) {
-            floppy_drive_sector_read(block.block, block.slice) catch |err| {
-                lastErr = err;
-                continue;
-            };
-            break;
-        }
-        TextTerminal.println("read {} after {} tries", block.block, i);
-        if (i >= 5)
-            return lastErr;
-    }
-    TextTerminal.println("done.");
-}
-
-// Sektoren schreiben
-pub fn writeBlocks(block: usize, buffer: []const u8) IsaOrFdcError!void {
-    if (!std.mem.isAligned(buffer.len, FLOPPY_SECTOR_SIZE))
-        return error.UnalignedBufferSize;
-
-    const blockCount = buffer.len / FLOPPY_SECTOR_SIZE;
-
-    var offset: usize = 0;
-    while (offset < blockCount) : (offset += 1) {
-        var i: usize = 0;
-        var lastErr: IsaOrFdcError = undefined;
-        while (i < 5) : (i += 1) {
-            floppy_drive_sector_write(block + offset, buffer[offset * FLOPPY_SECTOR_SIZE .. (offset + 1) * FLOPPY_SECTOR_SIZE]) catch |err| {
-                lastErr = err;
-                continue;
-            };
-            break;
-        }
-        if (i >= 5)
-            return lastErr;
-    }
-}
-
-// Sektor einlesen
-fn floppy_drive_sector_read(lba: u32, buffer: []u8) IsaOrFdcError!void {
+fn execRead(address: CHS.CHS, buffer: []u8) !void {
     const drive = try getCurrentDrive();
 
-    if (buffer.len != FLOPPY_SECTOR_SIZE)
-        return error.InvalidBufferSize;
+    var handle = if (drive.ioMode == .dma) try ISA_DMA.beginRead(2, buffer, .single) else undefined;
+    defer if (drive.ioMode == .dma) handle.close();
 
-    // Adresse in CHS umwandeln weil READ nur CHS als Parameter nimmt
-    const chs = lba2chs(lba);
+    // if (drive.ioMode == .portIO) {
+    //     var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+    //     dor.irqEnabled = false;
+    //     writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
+    // }
+    // defer if (drive.ioMode == .portIO) {
+    //     var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
+    //     dor.irqEnabled = true;
+    //     writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
+    // };
 
-    // Und bevor irgendetwas gemacht werden kann, stellen wir sicher, dass der
-    // Motor laeuft.
-    try floppy_drive_motor_set(.on);
+    TextTerminal.print("start read|");
 
-    // Kopf richtig positionieren
-    floppy_drive_seek(chs.cylinder, chs.head) catch |err| {
-        // Neu kalibrieren und nochmal probiren
-        try floppy_drive_recalibrate();
-        try floppy_drive_seek(chs.cylinder, chs.head);
-    };
+    try startCommand(.readData, false, true, false);
 
-    // Wenn DMA aktiviert ist, wird es jetzt initialisiert
-    var dma_handle = if (use_dma) try ISA_DMA.beginRead(FLOPPY_DMA_CHANNEL, buffer, .single) else {};
-    defer if (use_dma) {
-        dma_handle.close();
-    };
+    try writeFifo(@intCast(u8, (address.head << 2) | drive.id));
+    try writeFifo(@intCast(u8, address.cylinder));
+    try writeFifo(@intCast(u8, address.head));
+    try writeFifo(@intCast(u8, address.sector));
+    try writeFifo(0x02); // (all floppy drives use 512bytes per sector))
+    try writeFifo(microHDFloppyLayout.sectorCount); // END OF TRACK (end of track, the last sector number on the track)
+    try writeFifo(0x1B); // GAP 1
+    try writeFifo(0xFF); // (all floppy drives use 512bytes per sector)
 
-    try floppy_drive_int_sense();
+    // If !DMA, then
+    // read via PIO here!
 
-    floppy_reset_irqcnt();
+    if (drive.ioMode == .portIO) {
+        for (buffer) |*b, i| {
+            const msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
+            std.debug.assert(msr.nonDma);
 
-    // Befehl und Argumente senden
-    // Byte 0: FLOPPY_CMD_READ
-    // Byte 1: Bit 2:       Kopf (0 oder 1)
-    //         Bits 0/1:    Laufwerk
-    // Byte 2: Zylinder
-    // Byte 3: Kopf
-    // Byte 4: Sektornummer (bei Multisektortransfers des ersten Sektors)
-    // Byte 5: Sektorgroesse (Nicht in bytes, sondern logarithmisch mit 0 fuer
-    //                      128, 1 fuer 256 usw.)
-    // Byte 6: Letzte Sektornummer in der aktuellen Spur
-    // Byte 7: Gap Length
-    // Byte 8: DTL (ignoriert, wenn Sektorgroesse != 0. 0xFF empfohlen)
-    try floppy_write_data(FLOPPY_CMD_READ);
-    try floppy_write_data((chs.head << 2) | drive.id);
-    try floppy_write_data(chs.cylinder);
-    try floppy_write_data(chs.head);
-    try floppy_write_data(chs.sector);
-    try floppy_write_data(FLOPPY_SECTOR_SIZE_CODE);
-    try floppy_write_data(FLOPPY_SECTORS_PER_TRACK);
-    try floppy_write_data(FLOPPY_GAP_LENGTH);
-    try floppy_write_data(0xFF);
+            b.* = try readFifo();
+        }
+        Timer.wait(200); // let the FIFO overrun m(
+        try waitForInterrupt(100);
+    } else {
+        TextTerminal.println("wait for dma...");
+        while (handle.isComplete() == false) {
+            Timer.wait(100);
+        }
+        TextTerminal.println("dma done...");
+        try waitForInterrupt(100);
+    }
 
-    if (!use_dma) {
-        TextTerminal.println("PIOread");
+    TextTerminal.println("read data:");
+    for (buffer) |b, i| {
+        TextTerminal.print("{X:0>2} ", b);
 
-        // Bei PIO kommt nach jedem gelesenen Byte ein Interrupt
-        for (buffer) |*byte, i| {
-            try floppy_wait_irq(FLOPPY_READ_TIMEOUT);
-
-            // IRQ bestaetigen
-            try floppy_drive_int_sense();
-            floppy_reset_irqcnt();
-            byte.* = try floppy_read_data();
+        if ((i % 16) == 15) {
+            TextTerminal.println("");
         }
     }
 
-    // Sobald der Vorgang beendet ist, kommt wieder ein IRQ
-    try floppy_wait_irq(FLOPPY_READ_TIMEOUT);
-
-    // Die Rueckgabewerte kommen folgendermassen an:
-    // Byte 0: Status 0
-    // Byte 1: Status 1
-    // Byte 2: Status 2
-    // Byte 3: Zylinder
-    // Byte 4: Kopf
-    // Byte 5: Sektornummer
-    // Byte 6: Sektorgroesse (siehe oben)
-    const status = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-
-    // Pruefen ob der Status in Ordnung ist
-    if ((status & FLOPPY_ST0_IC_MASK) != FLOPPY_ST0_IC_NORMAL) {
-        return error.GenericFailure;
-    }
-
-    // Reading is done because DMA has already filled the buffer :)
-}
-
-// Sektor schreiben
-fn floppy_drive_sector_write(lba: u32, buffer: []const u8) IsaOrFdcError!void {
-    if (buffer.len != FLOPPY_SECTOR_SIZE)
-        return error.InvalidBufferSize;
-
-    var drive = try getCurrentDrive();
-
-    // Adresse in CHS-Format umwandeln, weil die Funktionen nur das als
-    // Parameter nehmen.
-    const chs = lba2chs(lba);
-
-    // Und bevor irgendetwas gemacht werden kann, stellen wir sicher, dass der
-    // Motor laeuft.
-    try floppy_drive_motor_set(.on);
-
-    // Kopf richtig positionieren
-    floppy_drive_seek(chs.cylinder, chs.head) catch |err| {
-        // Neu kalibrieren und nochmal probiren
-        try floppy_drive_recalibrate();
-        try floppy_drive_seek(chs.cylinder, chs.head);
-    };
-
-    // DMA vorbereiten
-    var dmaTransfer = if (use_dma) try ISA_DMA.beginWrite(FLOPPY_DMA_CHANNEL, buffer, .single) else {};
-    defer if (use_dma) {
-        dmaTransfer.close();
-    };
-
-    // // DMA-Buffer fuellen
-    // if (cdi_dma_write(&dma_handle) != 0) {
-    //     cdi_dma_close(&dma_handle);
-    //     return -1;
+    // {
+    //     const msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
+    //     std.debug.assert(!msr.nonDma);
     // }
 
-    floppy_reset_irqcnt();
-    // Befehl und Argumente senden
-    // Byte 0: FLOPPY_CMD_WRITE
-    // Byte 1: Bit 2:       Kopf (0 oder 1)
-    //         Bits 0/1:    Laufwerk
-    // Byte 2: Zylinder
-    // Byte 3: Kopf
-    // Byte 4: Sektornummer (bei Multisektortransfers des ersten Sektors)
-    // Byte 5: Sektorgroesse (Nicht in bytes, sondern logarithmisch mit 0 fuer
-    //                      128, 1 fuer 256 usw.)
-    // Byte 6: Letzte Sektornummer in der aktuellen Spur
-    // Byte 7: Gap Length
-    // Byte 8: DTL (ignoriert, wenn Sektorgroesse != 0. 0xFF empfohlen)
-    try floppy_write_data(FLOPPY_CMD_WRITE);
-    try floppy_write_data((chs.head << 2) | drive.id);
-    try floppy_write_data(chs.cylinder);
-    try floppy_write_data(chs.head);
-    try floppy_write_data(chs.sector);
-    try floppy_write_data(FLOPPY_SECTOR_SIZE_CODE);
-    try floppy_write_data(FLOPPY_SECTORS_PER_TRACK);
-    try floppy_write_data(FLOPPY_GAP_LENGTH);
-    try floppy_write_data(0xFF);
+    const st0 = try readFifo(); // First result byte = st0 status register
+    const st1 = try readFifo(); // Second result byte = st1 status register
+    const st2 = try readFifo(); // Third result byte = st2 status register
+    const cylinder = try readFifo(); // Fourth result byte = cylinder number
+    const endHead = try readFifo(); // Fifth result byte = ending head number
+    const endSector = try readFifo(); // Sixth result byte = ending sector number
+    const mb2 = try readFifo(); // Seventh result byte = 2
 
-    // Wenn der Sektor geschrieben ist, kommt ein IRQ
-    try floppy_wait_irq(FLOPPY_READ_TIMEOUT);
+    TextTerminal.println("result: {} / {X} {X} {X} {} {} {} {}", buffer.len, st0, st1, st2, cylinder, endHead, endSector, mb2);
 
-    // Die Rueckgabewerte kommen folgendermassen an:
-    // Byte 0: Status 0
-    // Byte 1: Status 1
-    // Byte 2: Status 2
-    // Byte 3: Zylinder
-    // Byte 4: Kopf
-    // Byte 5: Sektornummer
-    // Byte 6: Sektorgroesse (siehe oben)
-
-    const status = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-    _ = try floppy_read_data();
-
-    // Pruefen ob der Status in Ordnung ist
-    if ((status & FLOPPY_ST0_IC_MASK) != FLOPPY_ST0_IC_NORMAL) {
-        return error.GenericFailure;
-    }
+    if (mb2 != 2)
+        return error.ExpectedValueWasNotTwo; // this is ... cryptic.
 }
 
-// Motorstatus setzen, also ein oder aus
-fn floppy_drive_motor_set(state: MotorState) Error!void {
-    const drive = try getCurrentDrive();
-
-    if (drive.motor == state) {
-        return; // already correct
-    }
-
-    // Wert des DOR sichern, weil nur das notwendige Bit ueberschrieben werden
-    // soll.
-    var dor = floppy_read_byte(FLOPPY_REG_DOR);
-    var delay: usize = undefined;
-    if (state == .on) {
-        // Einschalten
-        dor |= FLOPPY_DOR_MOTOR(drive);
-        delay = FLOPPY_DELAY_SPINUP;
-    } else {
-        // Ausschalten
-        dor &= ~FLOPPY_DOR_MOTOR(drive);
-        delay = FLOPPY_DELAY_SPINDOWN;
-    }
-    floppy_write_byte(FLOPPY_REG_DOR, dor);
-
-    // Dem Laufwerk Zeit geben, anzulaufen
-    Timer.wait(delay);
-
-    drive.motor = state;
-    drive.current_cylinder = 255;
-}
-
-// Lese- und Schreibkopf des Diskettenlaufwerks auf einen neuen Zylinder
-// einstellen
-fn floppy_drive_seek(cylinder: u8, head: u8) Error!void {
+fn execRecalibrate() !void {
     var drive = try getCurrentDrive();
 
-    // Pruefen ob der Kopf nicht schon richtig steht, denn dann kann etwas Zeit
-    // eingespart werden, indem nicht neu positioniert wird.
-    if (drive.current_cylinder == cylinder) {
-        return;
-    }
+    try startCommand(.recalibrate, false, false, false);
 
-    // Wenn der seek beendet ist, kommt ein irq an.
-    floppy_reset_irqcnt();
+    try writeFifo(drive.id);
 
-    // Befehl und Attribute senden
-    // Byte 0:  FLOPPY_CMD_SEEK
-    // Byte 1:  Bit 0 und 1: Laufwerksnummer
-    //          Bit 2: Head
-    // Byte 2:
-    try floppy_write_data(FLOPPY_CMD_SEEK);
-    try floppy_write_data((head << 2) | drive.id);
-    try floppy_write_data(cylinder);
+    try waitForInterrupt(5000);
 
-    // Auf IRQ warten, der kommt, sobald der Kopf positioniert ist.
-    try floppy_wait_irq(FLOPPY_SEEK_TIMEOUT);
+    try execSenseInterrupt(false);
+}
 
-    // Int sense holt die aktuelle Zylindernummer und teilt dem Kontroller mit,
-    // dass sein IRQ abgearbeitet wurde. Die Zylindernummer wird benutzt, um
-    // festzustellen ob der Seek erfolgreich verlief.
-    try floppy_drive_int_sense();
+fn execSenseInterrupt(postResetCondition: bool) !void {
+    var drive = try getCurrentDrive();
 
-    // Dem Kopf Zeit geben, sich sauber einzustellen
-    Timer.wait(FLOPPY_SEEK_DELAY);
+    try startCommand(.senseInterrupt, false, false, false);
 
-    // Warten bis das Laufwerk bereit ist
+    const st0 = try readFifo();
+    const cyl = try readFifo(); // this is probably wrong
 
-    var i: usize = 0;
+    // TextTerminal.println("sense returned: st0={X}, cyl={}", st0, cyl);
 
-    while (i < 5) : (i += 1) {
-        const msr = floppy_read_byte(FLOPPY_REG_MSR);
-        if ((msr & (FLOPPY_MSR_DRV_BSY(drive) | FLOPPY_MSR_CMD_BSY)) == 0) {
-            break;
-        }
-        Timer.wait(FLOPPY_SEEK_DELAY);
-    }
-
-    // Wenn das Laufwerk nicht funktioniert muesste jetzt etwas dagegen
-    // unternommen werden.
-    if (i >= 5) {
-        return error.GenericFailure;
-    }
-
-    // Pruefen ob der Seek geklappt hat anhand der neuen Zylinderangabge aus
-    // int_sense
-    if (drive.current_cylinder != cylinder) {
-        TextTerminal.println("Fehler beim seek: Zylinder nach dem Seek nach {} ist {}\n", cylinder, drive.current_cylinder);
-        return error.GenericFailure;
-    }
-
-    // Pruefen ob der Seek erfolgreich abgeschlossen wurde anhand des Seek-End
-    // Bits im Statusregister
-    if ((drive.current_status & FLOPPY_ST0_SEEK_END) != FLOPPY_ST0_SEEK_END) {
-        return error.GenericFailure;
+    // The correct value of st0 after a reset should be 0xC0 | drive number (drive number = 0 to 3).
+    // After a Recalibrate/Seek it should be 0x20 | drive number.
+    if (postResetCondition) {
+        if ((st0 & 0xE0) != 0xC0 | @as(u8, drive.id))
+            return error.SenseInterruptFailure;
+    } else {
+        if ((st0 & 0xE0) != 0x20 | @as(u8, drive.id))
+            return error.SenseInterruptFailure;
     }
 }
 
-fn floppy_write_data(data: u8) Error!void {
-    // Wenn der Controller beschaeftigt ist, wird ein bisschen gewartet und
-    // danach nochmal probiert
-    var i: usize = 0;
-    while (i < FLOPPY_WRITE_DATA_TRIES) : (i += 1) {
-        const msr = floppy_read_byte(FLOPPY_REG_DSR);
+fn execSpecify(enableDMA: bool, stepRateTime: u4, headLoadTime: u7, headUnloadTime: u4) !void {
+    try startCommand(.specify, false, false, false);
 
-        // Pruefen ob der Kontroller bereit ist, Daten von uns zu akzeptieren
-        if ((msr & (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) == (FLOPPY_MSR_RQM)) {
-            floppy_write_byte(FLOPPY_REG_DATA, data);
+    try writeFifo((@as(u8, stepRateTime) << 4) | headUnloadTime);
+    try writeFifo((@as(u8, headLoadTime) << 1) | (if (enableDMA) @as(u8, 0) else 1));
+}
+
+/// Returns one byte. If the value is 0x90, the floppy controller is a 82077AA.
+fn execVersion() !u8 {
+    try startCommand(.version, false, false, false);
+    return try readFifo();
+}
+
+fn execConfigure(impliedSeek: bool, disableFifo: bool, disablePolling: bool, fifoIrqThreshold: u5, precompensation: u8) !void {
+    if (fifoIrqThreshold < 1 or fifoIrqThreshold > 16)
+        return error.ThresholdOutOfRange;
+    var data = @as(u8, @intCast(u4, fifoIrqThreshold - 1));
+    if (impliedSeek)
+        data |= (1 << 6);
+    if (disableFifo)
+        data |= (1 << 5);
+    if (!disablePolling)
+        data |= (1 << 4);
+
+    try startCommand(.configure, false, false, false);
+    try writeFifo(0x00);
+    try writeFifo(data);
+    try writeFifo(precompensation);
+}
+
+fn execLock(enableLock: bool) !void {
+    try startCommand(.lock, enableLock, false, false);
+
+    const result = try readFifo();
+    if (result != if (enableLock) @as(u8, 0x10) else 0x00)
+        return error.LockFailed;
+}
+
+fn startCommand(cmd: FloppyCommand, multiTrack: bool, mfmMode: bool, skipMode: bool) !void {
+    var msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
+    if (msr.commandBusy)
+        return error.ControllerIsBusy;
+
+    var data = @as(u8, @enumToInt(cmd));
+    if (multiTrack)
+        data |= 0x80;
+    if (mfmMode)
+        data |= 0x40;
+    if (skipMode)
+        data |= 0x20;
+
+    TextTerminal.println("startCommand({}, {}, {}, {})", cmd, multiTrack, mfmMode, skipMode);
+    try writeFifo(data);
+}
+
+const FifoDirection = enum {
+    fdcToHost,
+    hostToFdc,
+};
+
+fn waitForFifoReady() error{Timeout}!FifoDirection {
+    var count: usize = 0;
+    while (true) {
+        var msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
+        if (msr.fifoReady)
+            return if (msr.fifoExpectsRead) return FifoDirection.fdcToHost else FifoDirection.hostToFdc;
+        Timer.wait(10);
+        count += 1;
+        if (count >= 10)
+            return error.Timeout;
+    }
+}
+
+fn writeFifo(value: u8) !void {
+    if ((try waitForFifoReady()) != .hostToFdc)
+        return error.InvalidFifoOperation;
+    writeRegister(.dataFifo, value);
+}
+
+fn readFifo() !u8 {
+    if ((try waitForFifoReady()) != .fdcToHost)
+        return error.InvalidFifoOperation;
+    return readRegister(.dataFifo);
+}
+
+fn writeRegister(reg: FloppyOutputRegisters, value: u8) void {
+    TextTerminal.println("writeRegister({}, 0x{X})", reg, value);
+    IO.out(u8, @enumToInt(reg), value);
+}
+
+fn readRegister(reg: FloppyInputRegisters) u8 {
+    const value = IO.in(u8, @enumToInt(reg));
+    // TextTerminal.println("readRegister({}) = 0x{X}", reg, value);
+    return value;
+}
+
+var irqCounter: u32 = 0;
+
+fn resetIrqCounter() void {
+    @atomicStore(u32, &irqCounter, 0, .Release);
+}
+
+fn handleIRQ6(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
+    TextTerminal.print(".");
+    _ = @atomicRmw(u32, &irqCounter, .Add, 1, .SeqCst);
+    return cpu;
+}
+
+/// waits `timeout` ms for IRQ6
+fn waitForInterrupt(timeout: usize) error{Timeout}!void {
+    var end = Timer.ticks + timeout;
+    while (Timer.ticks < end) {
+        if (@atomicRmw(u32, &irqCounter, .Xchg, 0, .SeqCst) > 0) {
             return;
         }
-        Timer.wait(FLOPPY_READ_DATA_DELAY);
+        asm volatile ("hlt");
     }
-    return error.GenericFailure;
+    return error.Timeout;
 }
 
-fn floppy_read_data() Error!u8 {
-    // Wenn der Controller beschaeftigt ist, wird ein bisschen gewartet und
-    // danach nochmal probiert
-    var i: usize = 0;
-    while (i < FLOPPY_READ_DATA_TRIES) : (i += 1) {
-        const msr = floppy_read_byte(FLOPPY_REG_DSR);
+const FloppyCommand = enum(u5) {
+    readTrack = 2, // generates irq6
+    specify = 3, // * set drive parameters
+    senseDriveStatus = 4,
+    writeData = 5, // * write to the disk
+    readData = 6, // * read from the disk
+    recalibrate = 7, // * seek to cylinder 0
+    senseInterrupt = 8, // * ack irq6, get status of last command
+    writeDeletedData = 9,
+    readId = 10, // generates irq6
+    readDeletedData = 12,
+    formatTrack = 13, // *
+    dumpRegisters = 14,
+    seek = 15, // * seek both heads to cylinder x
+    version = 16, // * used during initialization, once
+    scanEqual = 17,
+    perpendicularMode = 18, // * used during initialization, once, maybe
+    configure = 19, // * set controller parameters
+    lock = 20, // * protect controller params from a reset
+    verify = 22,
+    scanLowOrEqual = 25,
+    scanHighOrEqual = 29,
+};
 
-        // Pruefen ob der Kontroller bereit ist, und Daten zum abholen
-        // bereitliegen.
-        if ((msr & (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) == (FLOPPY_MSR_RQM | FLOPPY_MSR_DIO)) {
-            return floppy_read_byte(FLOPPY_REG_DATA);
-        }
-        Timer.wait(FLOPPY_READ_DATA_DELAY);
-    }
-    return error.GenericFailure;
-}
+const FloppyOutputRegisters = enum(u16) {
+    digitalOutputRegister = 0x3f2,
+    tapeDriveRegister = 0x3f3,
+    datarateSelectRegister = 0x3f4,
+    dataFifo = 0x3f5,
+    configurationControlRegister = 0x3f7,
+};
 
-fn floppy_read_byte(reg: u16) u8 {
-    return IO.in(u8, reg);
-}
+const FloppyInputRegisters = enum(u16) {
+    statusRegisterA = 0x3f0,
+    statusRegisterB = 0x3f1,
+    digitalOutputRegister = 0x3f2,
+    tapeDriveRegister = 0x3f3,
+    mainStatusRegister = 0x3f4,
+    dataFifo = 0x3f5,
+    digitalInputRegister = 0x3F7,
+};
 
-fn floppy_write_byte(reg: u16, value: u8) void {
-    IO.out(u8, reg, value);
-}
+const DigitalOutputRegister = packed struct {
+    driveSelect: u2,
+    disableReset: bool,
+    irqEnabled: bool,
+    motorA: bool,
+    motorB: bool,
+    motorC: bool,
+    motorD: bool,
+};
 
-const FLOPPY_REG_DOR = 0x3F2;
-const FLOPPY_REG_MSR = 0x3F4;
-const FLOPPY_REG_DSR = 0x3F4;
-const FLOPPY_REG_DATA = 0x3F5;
+const MainStatusRegister = packed struct {
+    driveDseeking: bool,
+    driveCseeking: bool,
+    driveBseeking: bool,
+    driveAseeking: bool,
+    commandBusy: bool,
+    nonDma: bool,
+    fifoExpectsRead: bool,
+    fifoReady: bool,
+};
 
-const FLOPPY_CMD_CONFIGURE: u8 = 19;
-const FLOPPY_DOR_DRIVE_MASK: u8 = 3;
-const FLOPPY_CMD_INT_SENSE: u8 = 8;
-const FLOPPY_FIFO_SIZE: u8 = 16;
-const FLOPPY_DOR_NRST: u8 = 1 << 2;
-const FLOPPY_DSR_500KBPS: u8 = 0;
-const FLOPPY_DOR_DMAGATE: u8 = 1 << 3;
-const FLOPPY_DSR_300KBPS: u8 = 1;
-const FLOPPY_DSR_1MBPS: u8 = 3;
-const FLOPPY_MSR_RQM: u8 = 1 << 7;
-const FLOPPY_CMD_SEEK: u8 = 15;
-const FLOPPY_DSR_250KBPS: u8 = 2;
-const FLOPPY_CMD_SPECIFY: u8 = 3;
-const FLOPPY_CMD_READ: u8 = 70;
-const FLOPPY_ST0_IC_NORMAL: u8 = 0 << 6;
-const FLOPPY_CMD_WRITE: u8 = 69;
-const FLOPPY_FIFO_THRESHOLD: u8 = 4;
-const FLOPPY_MSR_DIO: u8 = 1 << 6;
-const FLOPPY_ST0_SEEK_END: u8 = 1 << 5;
-const FLOPPY_ST0_IC_MASK: u8 = 3 << 6;
-const FLOPPY_CMD_RECALIBRATE: u8 = 7;
-const FLOPPY_MSR_CMD_BSY: u8 = 1 << 4;
-
-const FLOPPY_READ_TIMEOUT = 200;
-const FLOPPY_DMA_CHANNEL = 2;
-const FLOPPY_RECAL_TIMEOUT = 100;
-const FLOPPY_READ_DATA_TRIES = 50;
-const FLOPPY_SEEK_DELAY = 15;
-const FLOPPY_DELAY_SPINUP = 500;
-const FLOPPY_SEEK_TIMEOUT = 100;
-const FLOPPY_WRITE_DATA_DELAY = 10;
-const FLOPPY_WRITE_DATA_TRIES = 50;
-const FLOPPY_SECTOR_SIZE_CODE = 2;
-const FLOPPY_HEAD_COUNT = 2;
-const FLOPPY_SECTORS_PER_TRACK = 18;
-const FLOPPY_DATA_RATE = 500000;
-const FLOPPY_SECTOR_COUNT = 2880;
-const FLOPPY_READ_DATA_DELAY = 10;
-const FLOPPY_RESET_TIMEOUT = 100;
-const FLOPPY_RECAL_TRIES = 5;
-const FLOPPY_SECTOR_SIZE = 512;
-const FLOPPY_DELAY_SPINDOWN = 500;
-const FLOPPY_GAP_LENGTH = 27;
-
-fn FLOPPY_DOR_MOTOR(drive: *const Drive) u8 {
-    return (@as(u8, 1) << (4 + @as(u3, drive.id)));
-}
-fn FLOPPY_DOR_DRIVE(drive: *const Drive) u8 {
-    return (drive.id);
-}
-fn FLOPPY_MSR_DRV_BSY(drive: *const Drive) u8 {
-    return (@as(u8, 1) << (drive.id));
+comptime {
+    std.debug.assert(@sizeOf(DigitalOutputRegister) == 1);
+    std.debug.assert(@sizeOf(MainStatusRegister) == 1);
 }

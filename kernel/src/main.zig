@@ -454,8 +454,7 @@ pub fn main() anyerror!void {
     {
         Terminal.println("    read sector 0...");
         var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-        try FDC.selectDrive(.A);
-        try FDC.readBlocks(0, sector0[0..]);
+        try FDC.read(.A, 0, sector0[0..]);
         for (sector0) |b, i| {
             Terminal.print("{X:0>2} ", b);
 
