@@ -13,6 +13,6 @@ jobs:
     - name: Install zig/master
       run: bash ./aux/install-zig.sh
     - name: Build boot.img
-      run: PATH=$PATH:`pwd`/zig-current make -C kernel boot.img
+      run: PATH=$PATH:`pwd`/zig-current make -C kernel boot.img SYSLINUX_ROOT=/usr/lib/syslinux/modules
     - name: Build floppy.img
-      run: PATH=$PATH:`pwd`/zig-current make -C kernel floppy.img
+      run: PATH=$PATH:`pwd`/zig-current make -C kernel floppy.img SYSLINUX_ROOT=/usr/lib/syslinux/modules

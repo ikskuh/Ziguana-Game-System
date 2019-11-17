@@ -11,6 +11,10 @@ QEMU_FLAGS+=\
 
 ZIG_FLAGS+=#-Drelease-fast=true
 
+ifeq "$(SYSLINUX_ROOT)" ""
+SYSLINUX_ROOT=/usr/lib/syslinux
+endif
+
 all: boot.img
 
 %.img\:flash: %.img
@@ -24,7 +28,7 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
 	mmd -i $@ ::/syslinux
-	mcopy -i $@ /usr/lib/syslinux/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
+	mcopy -i $@ $(SYSLINUX_ROOT)/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
@@ -38,7 +42,7 @@ floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
 	mmd -i $@ ::/syslinux
-	mcopy -i $@ /usr/lib/syslinux/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
+	mcopy -i $@ $(SYSLINUX_ROOT)/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
