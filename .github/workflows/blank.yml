@@ -9,8 +9,10 @@ jobs:
     - uses: actions/checkout@v1
     - uses: mstksg/get-package@v1
       with:
-        apt-get: mono-mcs mtools syslinux-common
+        apt-get: mono-mcs mtools syslinux-common jq curl
+    - name: Install zig/master
+      run: sh ./aux/install-zig.sh
     - name: Build boot.img
-      run: make -C kernel boot.img
+      run: PATH=$PATH:`pwd`/zig-current make -C kernel boot.img
     - name: Build floppy.img
-      run: make -C kernel floppy.img
+      run: PATH=$PATH:`pwd`/zig-current make -C kernel floppy.img
