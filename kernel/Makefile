@@ -28,7 +28,7 @@ boot.img: zig-cache/bin/kernel syslinux.cfg
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
 	mmd -i $@ ::/syslinux
-	mcopy -i $@ $(SYSLINUX_ROOT)/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
+	mcopy -i $@ $(SYSLINUX_ROOT)/bios/syslinux.c32 $(SYSLINUX_ROOT)/bios/mboot.c32 $(SYSLINUX_ROOT)/bios/libcom32.c32 ::/syslinux
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
@@ -42,7 +42,7 @@ floppy.img: zig-cache/bin/kernel syslinux.cfg src/stdfont.bin src/stdkbd_default
 	mkfs.vfat -n RETROS $@
 	syslinux -a $@
 	mmd -i $@ ::/syslinux
-	mcopy -i $@ $(SYSLINUX_ROOT)/bios/{syslinux,mboot,libcom32}.c32 ::/syslinux
+	mcopy -i $@ $(SYSLINUX_ROOT)/bios/syslinux.c32 $(SYSLINUX_ROOT)/bios/mboot.c32 $(SYSLINUX_ROOT)/bios/libcom32.c32 ::/syslinux
 	mcopy -i $@ syslinux.cfg ::/syslinux
 	mcopy -i $@ zig-cache/bin/kernel ::
 
