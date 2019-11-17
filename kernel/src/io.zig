@@ -42,3 +42,21 @@ pub fn inl(port: u16) u32 {
         : [port] "{dx}" (port)
     );
 }
+
+pub fn out(comptime T: type, port: u16, value: T) void {
+    switch (T) {
+        u8 => return outb(port, value),
+        u16 => return outw(port, value),
+        u32 => return outl(port, value),
+        else => @compileError("Only u8, u16 or u32 are allowed for port I/O!"),
+    }
+}
+
+pub fn in(comptime T: type, port: u16) T {
+    switch (T) {
+        u8 => return inb(port),
+        u16 => return inw(port),
+        u32 => return inl(port),
+        else => @compileError("Only u8, u16 or u32 are allowed for port I/O!"),
+    }
+}

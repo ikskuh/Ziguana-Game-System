@@ -17,6 +17,8 @@ const EnumArray = @import("enum-array.zig").EnumArray;
 const Bitmap = @import("bitmap.zig").Bitmap;
 
 const PCI = @import("pci.zig");
+const CMOS = @import("cmos.zig");
+const FDC = @import("floppy-disk-controller.zig");
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
@@ -280,7 +282,6 @@ pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.Cpu
                 Terminal.enable_serial = true;
                 Terminal.println("Serial output enabled!");
             }
-
             break :blk cpu;
         },
         else => cpu,
@@ -440,6 +441,30 @@ pub fn main() anyerror!void {
     Timer.init();
     Terminal.println("[X");
 
+    Terminal.print("[ ] Initialize CMOS...\r");
+    CMOS.init();
+    Terminal.println("[X");
+
+    CMOS.printInfo();
+
+    Terminal.print("[ ] Initialize FDC...\r");
+    try FDC.init();
+    Terminal.println("[X");
+
+    {
+        Terminal.println("    read sector 0...");
+        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+        try FDC.selectDrive(.A);
+        try FDC.readBlocks(0, sector0[0..]);
+        for (sector0) |b, i| {
+            Terminal.print("{X:0>2} ", b);
+
+            if ((i % 16) == 15) {
+                Terminal.println("");
+            }
+        }
+    }
+
     Terminal.print("[ ] Initialize PCI...\r");
     PCI.init();
     Terminal.println("[X");
@@ -484,7 +509,7 @@ fn kmain() noreturn {
             for (trace.instruction_addresses) |addr, i| {
                 if (i >= trace.index)
                     break;
-                Terminal.println("{X: >8}", addr);
+                Terminal.println("Stack: {x: >8}", addr);
             }
         }
     };

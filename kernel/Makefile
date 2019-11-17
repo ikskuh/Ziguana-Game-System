@@ -17,7 +17,7 @@ all: boot.img
 	sudo dd if=$< of=/dev/disk/by-label/RETROS status=progress
 
 run: boot.img
-	qemu-system-i386 $(QEMU_FLAGS) -hda $< | aux/stacktrace_to_line.sh
+	qemu-system-i386 $(QEMU_FLAGS) -hda $< -fda cartridge.img | aux/stacktrace_to_line.sh
 
 boot.img: zig-cache/bin/kernel syslinux.cfg
 	fallocate -l 20M $@

@@ -73,3 +73,11 @@ Mehr als ein Code File erlauben?
 + Pro: Bessere Strukturierung
 - Con: Komplexere Implementierung, kein "Go To Definition"
 => Einzelnes Codestück
+
+
+synth features:
+- duty cycle / steepness
+- frequency mixing (waveforms)
+- 
+
+
