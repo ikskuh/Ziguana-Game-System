@@ -30,7 +30,7 @@ VERSION=$(basename ${TARBALL} | sed 's/.tar.xz$//')
 
 echo "Updating to ${VERSION}"
 
-curl "${TARBALL}" | tar -xJC ${ROOT} || die "failed to extract zig!"
+curl "${TARBALL}" | tar -xJ || die "failed to extract zig!"
 
 mv ${VERSION} zig-current || die "failed to move folder"
 
