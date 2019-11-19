@@ -462,6 +462,11 @@ pub fn main() anyerror!void {
                 Terminal.println("");
             }
         }
+        Terminal.println("    write sector 0...");
+        for (sector0) |*b, i| {
+            b.* = @truncate(u8, i);
+        }
+        try FDC.write(.A, 0, sector0[0..]);
     }
 
     Terminal.print("[ ] Initialize PCI...\r");

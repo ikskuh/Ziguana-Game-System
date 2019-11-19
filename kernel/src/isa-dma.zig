@@ -21,7 +21,14 @@ const TransferMode = packed struct {
 
     const TransferDirection = enum(u2) {
         verify = 0b00,
+
+        /// this means "RAM to device" (so: CPU *writes* data)
+        /// this bitfield is usually described as *read*, as the device reads from
+        /// RAM, but i find this more confusing then helping, so i flipped those.
+        /// We implement code for a CPU here, not a for the FDC!
         write = 0b10,
+
+        /// this means "device to RAM" (so: CPU *reads* data)
         read = 0b01,
     };
 

@@ -10,6 +10,9 @@ const CHS = @import("chs.zig");
 
 const BlockIterator = @import("block-iterator.zig").BlockIterator;
 
+const defaultRetryCount = 5;
+const disableReadWriteRetries = false;
+
 pub const microHDFloppyLayout = CHS.DriveLayout{
     .headCount = 2,
     .cylinderCount = 80,
@@ -107,7 +110,7 @@ pub fn init() !void {
     }
 }
 
-/// reads
+/// reads blocks from drive `name`, starting at block `startingBlock`.
 pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
     try selectDrive(&allDrives[@enumToInt(name)]);
 
@@ -125,11 +128,48 @@ pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
         var retries: usize = 5;
         var lastError: anyerror = undefined;
         while (retries > 0) : (retries -= 1) {
-            // readBlock(block.block, block.slice) catch |err| {
-            //     lastError = err;
-            //     continue;
-            // };
-            try readBlock(block.block, block.slice);
+            if (disableReadWriteRetries) {
+                try readBlock(block.block, block.slice);
+            } else {
+                readBlock(block.block, block.slice) catch |err| {
+                    lastError = err;
+                    continue;
+                };
+            }
+            break;
+        }
+        if (retries == 0)
+            return lastError;
+    }
+}
+
+/// writes blocks from drive `name`, starting at block `startingBlock`.
+pub fn write(name: DriveName, startingBlock: usize, data: []const u8) !void {
+    try selectDrive(&allDrives[@enumToInt(name)]);
+
+    var drive = try getCurrentDrive();
+
+    try setMotorPower(.on);
+
+    // turn motor off after successful or failed operation
+    defer setMotorPower(.off) catch unreachable; // error is only when getCurrentDrive() fails and we called that already :)
+
+    Timer.wait(200); // Let motor spin up a bit
+
+    var iterator = try BlockIterator(.constant).init(startingBlock, data, 512);
+    while (iterator.next()) |block| {
+        var retries: usize = defaultRetryCount;
+        var lastError: anyerror = undefined;
+        while (retries > 0) : (retries -= 1) {
+            if (disableReadWriteRetries) {
+                try writeBlock(block.block, block.slice);
+            } else {
+                writeBlock(block.block, block.slice) catch |err| {
+                    lastError = err;
+                    continue;
+                };
+            }
+
             break;
         }
         if (retries == 0)
@@ -146,6 +186,17 @@ fn readBlock(block: u32, buffer: []u8) !void {
     };
 
     try execRead(chs, buffer);
+}
+
+fn writeBlock(block: u32, buffer: []const u8) !void {
+    const chs = try CHS.lba2chs(microHDFloppyLayout, block);
+
+    execSeek(@intCast(u8, chs.cylinder), @intCast(u8, chs.head), 1000) catch {
+        try execRecalibrate();
+        try execSeek(@intCast(u8, chs.cylinder), @intCast(u8, chs.head), 1000);
+    };
+
+    try execWrite(chs, buffer);
 }
 
 fn resetController() !void {
@@ -255,6 +306,27 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
     var handle = if (drive.ioMode == .dma) try ISA_DMA.beginRead(2, buffer, .single) else undefined;
     defer if (drive.ioMode == .dma) handle.close();
 
+    return execReadOrWriteTransfer(address, .readData);
+}
+
+fn execWrite(address: CHS.CHS, buffer: []const u8) !void {
+    const drive = try getCurrentDrive();
+
+    var handle = if (drive.ioMode == .dma) try ISA_DMA.beginWrite(2, buffer, .single) else undefined;
+    defer if (drive.ioMode == .dma) handle.close();
+
+    return execReadOrWriteTransfer(address, .writeData);
+}
+
+fn execReadOrWriteTransfer(address: CHS.CHS, cmd: FloppyCommand) !void {
+    const drive = try getCurrentDrive();
+    std.debug.assert(switch (cmd) {
+        .readData, .writeData => true,
+        else => false,
+    });
+
+    std.debug.assert(drive.ioMode == .dma); // .portIO is not supported yet!
+
     // if (drive.ioMode == .portIO) {
     //     var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
     //     dor.irqEnabled = false;
@@ -266,7 +338,7 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
     //     writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
     // };
 
-    try startCommand(.readData, false, true, false);
+    try startCommand(cmd, false, true, false);
 
     try writeFifo(@intCast(u8, (address.head << 2) | drive.id));
     try writeFifo(@intCast(u8, address.cylinder));
@@ -281,18 +353,17 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
     // read via PIO here!
 
     if (drive.ioMode == .portIO) {
-        for (buffer) |*b, i| {
-            const msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
-            std.debug.assert(msr.nonDma);
+        // for (buffer) |*b, i| {
+        //     const msr = @bitCast(MainStatusRegister, readRegister(.mainStatusRegister));
+        //     std.debug.assert(msr.nonDma);
 
-            b.* = try readFifo();
-        }
-        Timer.wait(200); // let the FIFO overrun m(
+        //     b.* = try readFifo();
+        // }
         try waitForInterrupt(100);
     } else {
-        while (handle.isComplete() == false) {
-            Timer.wait(100);
-        }
+        // while (handle.isComplete() == false) {
+        //     Timer.wait(100);
+        // }
         try waitForInterrupt(100);
     }
 
