@@ -1,15 +1,15 @@
 const std = @import("std");
 
+pub const Marker = enum {
+    free,
+    allocated,
+};
+
 pub fn Bitmap(comptime BitCount: comptime_int) type {
     return struct {
         const This = @This();
         const BitPerWord = @typeInfo(usize).Int.bits;
         const WordCount = (BitCount + BitPerWord - 1) / BitPerWord;
-
-        pub const Marker = enum {
-            free,
-            allocated,
-        };
 
         /// one bit for each page in RAM.
         /// If the bit is set, the corresponding page is free.

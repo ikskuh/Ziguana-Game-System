@@ -14,11 +14,15 @@ const SplashScreen = @import("splashscreen.zig");
 const Assembler = @import("assembler.zig");
 
 const EnumArray = @import("enum-array.zig").EnumArray;
-const Bitmap = @import("bitmap.zig").Bitmap;
 
 const PCI = @import("pci.zig");
 const CMOS = @import("cmos.zig");
 const FDC = @import("floppy-disk-controller.zig");
+
+const Heap = @import("heap.zig");
+
+const PMM = @import("pmm.zig");
+const VMM = @import("vmm.zig");
 
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
@@ -155,7 +159,7 @@ extern fn executeUsercode() noreturn {
         }
     };
 
-    if (Assembler.assemble(&arena.allocator, buffer.toSliceConst(), vmm_mapper.getUserSpace(), null)) {
+    if (Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null)) {
         arena.deinit();
 
         Terminal.println("Assembled code successfully!");
@@ -352,22 +356,22 @@ pub fn main() anyerror!void {
             var start = std.mem.alignForward(@intCast(usize, entry.baseAddress), 4096); // only allocate full pages
             var length = entry.length - (start - entry.baseAddress); // remove padded bytes
             while (start < entry.baseAddress + length) : (start += 4096) {
-                pmm_bitmap.mark(@intCast(usize, start) / 0x1000, switch (entry.type) {
-                    .available => @typeOf(pmm_bitmap).Marker.free,
-                    else => @typeOf(pmm_bitmap).Marker.allocated,
+                PMM.mark(@intCast(usize, start), switch (entry.type) {
+                    .available => PMM.Marker.free,
+                    else => PMM.Marker.allocated,
                 });
             }
         }
     }
 
-    Terminal.println("total memory: {} pages, {Bi}", pmm_bitmap.getFreeCount(), 0x1000 * pmm_bitmap.getFreeCount());
+    Terminal.println("total memory: {} pages, {Bi}", PMM.getFreePageCount(), PMM.getFreeMemory());
 
     // mark "ourself" used
     {
         var pos = @ptrToInt(&__start);
         std.debug.assert(std.mem.isAligned(pos, 4096));
         while (pos < @ptrToInt(&__end)) : (pos += 4096) {
-            pmm_bitmap.mark(pos / 0x1000, .allocated);
+            PMM.mark(pos, .allocated);
         }
     }
 
@@ -375,7 +379,7 @@ pub fn main() anyerror!void {
     {
         var i: usize = 0x0000;
         while (i < 0x10000) : (i += 0x1000) {
-            pmm_bitmap.mark(i / 0x1000, .allocated);
+            PMM.mark(i, .allocated);
         }
     }
 
@@ -385,7 +389,7 @@ pub fn main() anyerror!void {
         Terminal.println("[X");
     }
 
-    var pageDirectory = try vmm_mapper.init();
+    var pageDirectory = try VMM.init();
 
     // map ourself into memory
     {
@@ -405,17 +409,17 @@ pub fn main() anyerror!void {
     }
 
     Terminal.print("[ ] Map user space memory...\r");
-    try vmm_mapper.create_userspace(pageDirectory);
+    try VMM.create_userspace(pageDirectory);
     Terminal.println("[X");
 
     Terminal.print("[ ] Map heap memory...\r");
-    try vmm_mapper.create_heap(pageDirectory);
+    try VMM.create_heap(pageDirectory);
     Terminal.println("[X");
 
-    Terminal.println("free memory: {} pages, {Bi}", pmm_bitmap.getFreeCount(), 0x1000 * pmm_bitmap.getFreeCount());
+    Terminal.println("free memory: {} pages, {Bi}", PMM.getFreePageCount(), PMM.getFreeMemory());
 
     Terminal.print("[ ] Enable paging...\r");
-    vmm_mapper.enable_paging();
+    VMM.enable_paging();
     Terminal.println("[X");
 
     Terminal.print("[ ] Initialize heap memory...\r");
@@ -612,189 +616,6 @@ fn haltForever() noreturn {
     }
 }
 
-// 1 MBit for 4 GB @ 4096 pages
-var pmm_bitmap = Bitmap(1 * 1024 * 1024).init(.allocated);
-
-const vmm_mapper = struct {
-    // WARNING: Change assembler jmp according to this!
-    const startOfUserspace = 0x40000000; // 1 GB into virtual memory
-    const sizeOfUserspace = 16 * 1024 * 1024; // 16 MB RAM
-    const endOfUserspace = startOfUserspace + sizeOfUserspace;
-
-    const startOfHeap = 0x80000000; // 2 GB into virtual memory
-    const sizeOfHeap = 1 * 1024 * 1024; // 1 MB
-    const endOfHeap = startOfHeap + sizeOfHeap;
-
-    fn getUserSpace() []u8 {
-        return @intToPtr([*]u8, startOfUserspace)[0..sizeOfUserspace];
-    }
-
-    fn getHeap() []u8 {
-        return @intToPtr([*]u8, startOfHeap)[0..sizeOfHeap];
-    }
-
-    fn init() !*PageDirectory {
-        var directory = @intToPtr(*PageDirectory, 0x1000 * (pmm_bitmap.alloc() orelse return error.OutOfMemory));
-        @memset(@ptrCast([*]u8, directory), 0, 4096);
-
-        asm volatile ("mov %[ptr], %%cr3"
-            :
-            : [ptr] "r" (directory)
-        );
-
-        return directory;
-    }
-
-    fn create_userspace(directory: *PageDirectory) !void {
-        var pointer = @as(u32, startOfUserspace);
-        while (pointer < endOfUserspace) : (pointer += 4096) {
-            var page_index = pmm_bitmap.alloc() orelse return error.OutOfMemory;
-            try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
-        }
-    }
-
-    fn create_heap(directory: *PageDirectory) !void {
-        var pointer = @as(u32, startOfHeap);
-        while (pointer < endOfHeap) : (pointer += 4096) {
-            var page_index = pmm_bitmap.alloc() orelse return error.OutOfMemory;
-            try directory.mapPage(pointer, 0x1000 * page_index, .readWrite);
-        }
-    }
-
-    fn enable_paging() void {
-        var cr0 = asm volatile ("mov %%cr0, %[cr]"
-            : [cr] "=r" (-> u32)
-        );
-        cr0 |= (1 << 31);
-        asm volatile ("mov %[cr], %%cr0"
-            :
-            : [cr] "r" (cr0)
-        );
-    }
-
-    const PageDirectory = extern struct {
-        entries: [1024]Entry,
-
-        fn mapPage(directory: *PageDirectory, virtualAddress: usize, physicalAddress: usize, access: WriteProtection) error{
-            AlreadyMapped,
-            OutOfMemory,
-        }!void {
-            const loc = addrToLocation(virtualAddress);
-
-            var dirEntry = &directory.entries[loc.directoryIndex];
-            if (!dirEntry.isMapped) {
-                var tbl = @intToPtr(*allowzero PageTable, 0x1000 * (pmm_bitmap.alloc() orelse return error.OutOfMemory));
-                @memset(@ptrCast([*]u8, tbl), 0, 4096);
-
-                dirEntry.* = Entry{
-                    .isMapped = true,
-                    .writeProtection = .readWrite,
-                    .access = .ring0,
-                    .enableWriteThroughCaching = false,
-                    .disableCaching = false,
-                    .wasAccessed = false,
-                    .wasWritten = false,
-                    .size = .fourKilo,
-                    .dontRefreshTLB = false,
-                    .userBits = 0,
-                    // Hack to workaround #2627
-                    .pointer0 = @truncate(u4, (@ptrToInt(tbl) >> 12)),
-                    .pointer1 = @intCast(u16, (@ptrToInt(tbl) >> 16)),
-                };
-
-                std.debug.assert(@ptrToInt(tbl) == (@bitCast(usize, dirEntry.*) & 0xFFFFF000));
-            }
-
-            var table = @intToPtr(*allowzero PageTable, ((@as(usize, dirEntry.pointer1) << 4) | @as(usize, dirEntry.pointer0)) << 12);
-
-            var tblEntry = &table.entries[loc.tableIndex];
-
-            if (tblEntry.isMapped) {
-                Terminal.println("Mapping is at {} is {X}: {}", loc, @bitCast(u32, tblEntry.*), tblEntry);
-                return error.AlreadyMapped;
-            }
-
-            tblEntry.* = Entry{
-                .isMapped = true,
-                .writeProtection = access,
-                .access = .ring0,
-                .enableWriteThroughCaching = false,
-                .disableCaching = false,
-                .wasAccessed = false,
-                .wasWritten = false,
-                .size = .fourKilo,
-                .dontRefreshTLB = false,
-                .userBits = 0,
-                // Hack to workaround #2627
-                .pointer0 = @truncate(u4, (physicalAddress >> 12)),
-                .pointer1 = @intCast(u16, (physicalAddress >> 16)),
-            };
-
-            std.debug.assert(physicalAddress == (@bitCast(usize, tblEntry.*) & 0xFFFFF000));
-
-            asm volatile ("invlpg %[ptr]"
-                :
-                : [ptr] "m" (virtualAddress)
-            );
-        }
-    };
-
-    const PageTable = extern struct {
-        entries: [1024]Entry,
-    };
-
-    const PageLocation = struct {
-        directoryIndex: u10,
-        tableIndex: u10,
-    };
-
-    fn addrToLocation(addr: usize) PageLocation {
-        const idx = addr / 4096;
-        return PageLocation{
-            .directoryIndex = @truncate(u10, idx / 1024),
-            .tableIndex = @truncate(u10, idx & 0x3FF),
-        };
-    }
-
-    const WriteProtection = enum(u1) {
-        readOnly = 0,
-        readWrite = 1,
-    };
-
-    const PageAccess = enum(u1) {
-        ring0 = 0,
-        all = 1,
-    };
-
-    const PageSize = enum(u1) {
-        fourKilo = 0,
-        fourMegas = 1,
-    };
-
-    const Entry = packed struct {
-        isMapped: bool,
-        writeProtection: WriteProtection,
-        access: PageAccess,
-        enableWriteThroughCaching: bool,
-        disableCaching: bool,
-        wasAccessed: bool,
-        wasWritten: bool,
-        size: PageSize,
-        dontRefreshTLB: bool,
-        userBits: u3 = 0,
-
-        // magic bug fix for #2627
-        pointer0: u4,
-        pointer1: u16,
-    };
-
-    comptime {
-        std.debug.assert(@sizeOf(Entry) == 4);
-        std.debug.assert(@sizeOf(PageDirectory) == 4096);
-        std.debug.assert(@sizeOf(PageTable) == 4096);
-    }
-};
-
 var kernel_panic_allocator_bytes: [4 * 1024 * 1024]u8 = undefined;
 var kernel_panic_allocator_state = std.heap.FixedBufferAllocator.init(kernel_panic_allocator_bytes[0..]);
 const kernel_panic_allocator = &kernel_panic_allocator_state.allocator;
@@ -882,166 +703,3 @@ fn getSelfDebugInfo() !*std.debug.DwarfInfo {
     try std.debug.openDwarfDebugInfo(&S.self_debug_info, kernel_panic_allocator);
     return &S.self_debug_info;
 }
-
-const Heap = struct {
-    /// defines the minimum size of an allocation
-    const granularity = 16;
-
-    const HeapSegment = struct {
-        const This = @This();
-
-        next: ?*This,
-        size: usize,
-        isFree: bool,
-    };
-
-    comptime {
-        std.debug.assert(@alignOf(HeapSegment) <= granularity);
-        std.debug.assert(@sizeOf(HeapSegment) <= granularity);
-        std.debug.assert(std.mem.isAligned(vmm_mapper.startOfHeap, granularity));
-        std.debug.assert(std.mem.isAligned(vmm_mapper.endOfHeap, granularity));
-    }
-
-    var allocatorObject = std.mem.Allocator{
-        .reallocFn = realloc,
-        .shrinkFn = shrink,
-    };
-
-    pub const allocator = &allocatorObject;
-
-    var firstNode: ?*HeapSegment = null;
-
-    pub fn init() void {
-        firstNode = @intToPtr(*HeapSegment, vmm_mapper.startOfHeap);
-        firstNode.?.* = HeapSegment{
-            .next = null,
-            .size = vmm_mapper.sizeOfHeap,
-            .isFree = true,
-        };
-    }
-
-    fn malloc(len: usize) std.mem.Allocator.Error![]u8 {
-        var node = firstNode;
-        while (node) |it| : (node = it.next) {
-            if (!it.isFree)
-                continue;
-            if (it.size - granularity < len)
-                continue;
-
-            const address_of_node = @ptrToInt(it);
-            std.debug.assert(std.mem.isAligned(address_of_node, granularity)); // security check here
-
-            const address_of_data = address_of_node + granularity;
-
-            const new_size_of_node = std.mem.alignForward(len, granularity) + granularity;
-
-            // if we haven't allocated *all* memory in this node
-            if (it.size > new_size_of_node) {
-                const remaining_size = it.size - new_size_of_node;
-                it.size = new_size_of_node;
-
-                const address_of_next = address_of_node + new_size_of_node;
-                std.debug.assert(std.mem.isAligned(address_of_next, granularity)); // security check here
-
-                const next = @intToPtr(*HeapSegment, address_of_next);
-                next.* = HeapSegment{
-                    .size = remaining_size,
-                    .isFree = true,
-                    .next = it.next,
-                };
-                it.next = next;
-            }
-
-            it.isFree = false;
-            return @intToPtr([*]u8, address_of_data)[0..len];
-        }
-        return error.OutOfMemory;
-    }
-
-    fn free(memory: []u8) void {
-        const address_of_data = @ptrToInt(memory.ptr);
-        std.debug.assert(std.mem.isAligned(address_of_data, granularity)); // security check here
-        const address_of_node = address_of_data - granularity;
-
-        const node = @intToPtr(*HeapSegment, address_of_node);
-        node.isFree = true;
-
-        if (node.next) |next| {
-            // sad, we cannot merge :(
-            if (!next.isFree)
-                return;
-
-            node.size += next.size;
-
-            // make sure this is the last access to "next",
-            // because: zig bug!
-            node.next = next.next;
-        }
-    }
-
-    fn printAllocationList() void {
-        var node = firstNode;
-        while (node) |it| : (node = it.next) {
-            Terminal.println("{*} = {{ .size = {}, .isFree = {}, .next = {*} }}", it, it.size, it.isFree, it.next);
-        }
-    }
-
-    fn realloc(/// foo
-    self: *std.mem.Allocator, /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
-    /// is guaranteed to be >= 1.
-    old_mem: []u8, /// If `old_mem.len == 0` then this is `undefined`, otherwise:
-    /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    /// Guaranteed to be >= 1.
-    /// Guaranteed to be a power of 2.
-    old_alignment: u29, /// If `new_byte_count` is 0 then this is a free and it is guaranteed that
-    /// `old_mem.len != 0`.
-    new_byte_count: usize, /// Guaranteed to be >= 1.
-    /// Guaranteed to be a power of 2.
-    /// Returned slice's pointer must have this alignment.
-    new_alignment: u29) std.mem.Allocator.Error![]u8 {
-        if (old_mem.len == 0) {
-            Terminal.println("malloc({})", new_byte_count);
-            if (new_alignment > granularity)
-                @panic("invalid alignment!");
-            var mem = malloc(new_byte_count);
-            printAllocationList();
-            return mem;
-        } else if (new_byte_count == 0) {
-            Terminal.println("free({}", old_mem.ptr);
-            free(old_mem);
-            printAllocationList();
-            return &[0]u8{};
-        } else {
-            Terminal.println("realloc({}, {})", old_mem.ptr, new_byte_count);
-            std.debug.assert(old_mem.len <= new_byte_count);
-            var new = try malloc(new_byte_count);
-            std.mem.copy(u8, new, old_mem);
-            free(old_mem);
-            printAllocationList();
-            return new;
-        }
-    }
-
-    fn shrink(self: *std.mem.Allocator, /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    old_mem: []u8, /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    old_alignment: u29, /// Guaranteed to be less than or equal to `old_mem.len`.
-    new_byte_count: usize, /// If `new_byte_count == 0` then this is `undefined`, otherwise:
-    /// Guaranteed to be less than or equal to `old_alignment`.
-    new_alignment: u29) []u8 {
-        if (new_byte_count == 0) {
-            Terminal.println("free'({}", old_mem.ptr);
-            free(old_mem);
-            printAllocationList();
-            return &[0]u8{};
-        } else {
-            printAllocationList();
-            Terminal.println("shrink(old_mem={}, old_alignment={}, new_byte_count={}, new_alignment={})\n", old_mem.len, old_alignment, new_byte_count, new_alignment);
-            @panic("not implemented yet");
-        }
-    }
-};
