@@ -266,8 +266,6 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
     //     writeRegister(.digitalOutputRegister, @bitCast(u8, dor));
     // };
 
-    TextTerminal.print("start read|");
-
     try startCommand(.readData, false, true, false);
 
     try writeFifo(@intCast(u8, (address.head << 2) | drive.id));
@@ -292,21 +290,10 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
         Timer.wait(200); // let the FIFO overrun m(
         try waitForInterrupt(100);
     } else {
-        TextTerminal.println("wait for dma...");
         while (handle.isComplete() == false) {
             Timer.wait(100);
         }
-        TextTerminal.println("dma done...");
         try waitForInterrupt(100);
-    }
-
-    TextTerminal.println("read data:");
-    for (buffer) |b, i| {
-        TextTerminal.print("{X:0>2} ", b);
-
-        if ((i % 16) == 15) {
-            TextTerminal.println("");
-        }
     }
 
     // {
@@ -322,7 +309,7 @@ fn execRead(address: CHS.CHS, buffer: []u8) !void {
     const endSector = try readFifo(); // Sixth result byte = ending sector number
     const mb2 = try readFifo(); // Seventh result byte = 2
 
-    TextTerminal.println("result: {} / {X} {X} {X} {} {} {} {}", buffer.len, st0, st1, st2, cylinder, endHead, endSector, mb2);
+    // TextTerminal.println("result: {} / {X} {X} {X} {} {} {} {}", buffer.len, st0, st1, st2, cylinder, endHead, endSector, mb2);
 
     if (mb2 != 2)
         return error.ExpectedValueWasNotTwo; // this is ... cryptic.
@@ -412,7 +399,7 @@ fn startCommand(cmd: FloppyCommand, multiTrack: bool, mfmMode: bool, skipMode: b
     if (skipMode)
         data |= 0x20;
 
-    TextTerminal.println("startCommand({}, {}, {}, {})", cmd, multiTrack, mfmMode, skipMode);
+    // TextTerminal.println("startCommand({}, {}, {}, {})", cmd, multiTrack, mfmMode, skipMode);
     try writeFifo(data);
 }
 
@@ -447,7 +434,7 @@ fn readFifo() !u8 {
 }
 
 fn writeRegister(reg: FloppyOutputRegisters, value: u8) void {
-    TextTerminal.println("writeRegister({}, 0x{X})", reg, value);
+    // TextTerminal.println("writeRegister({}, 0x{X})", reg, value);
     IO.out(u8, @enumToInt(reg), value);
 }
 
@@ -464,7 +451,6 @@ fn resetIrqCounter() void {
 }
 
 fn handleIRQ6(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
-    TextTerminal.print(".");
     _ = @atomicRmw(u32, &irqCounter, .Add, 1, .SeqCst);
     return cpu;
 }

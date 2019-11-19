@@ -14,23 +14,23 @@ const TransferMode = packed struct {
     channel: u2,
 
     direction: TransferDirection,
-    autoReset: bool,
+    autoInit: bool,
 
-    count: CountDirection,
+    count: AddressOperation,
     mode: Mode,
 
     const TransferDirection = enum(u2) {
         verify = 0b00,
-        write = 0b01,
-        read = 0b10,
+        write = 0b10,
+        read = 0b01,
     };
 
-    const CountDirection = enum(u1) {
+    const AddressOperation = enum(u1) {
         // increment address
-        up = 0,
+        increment = 0,
 
         // decrement address
-        down = 1,
+        decrement = 1,
     };
 
     const Mode = enum(u2) {
@@ -210,7 +210,7 @@ const Handle = struct {
         return handle.dma.getStatus().transferComplete[handle.channel];
     }
 
-    pub fn close(handle: Handle) void { }
+    pub fn close(handle: Handle) void {}
 };
 
 /// starts a new DMA transfer
@@ -236,16 +236,17 @@ fn begin(channel: u3, source_ptr: usize, source_len: usize, mode: TransferMode.M
     // We modify the channel, make sure it doesn't do DMA stuff in time
     handle.dma.maskChannel(handle.channel, true);
 
+    handle.dma.setStartAddress(handle.channel, @truncate(u16, source_ptr));
+    handle.dma.setCounter(handle.channel, @truncate(u16, source_len - 1));
+    handle.dma.setPage(handle.channel, @truncate(u8, source_ptr >> 16));
+
     handle.dma.setTransferMode(TransferMode{
         .channel = handle.channel,
         .direction = dir,
-        .autoReset = false,
-        .count = .up,
+        .autoInit = false,
+        .count = .increment,
         .mode = mode,
     });
-    handle.dma.setStartAddress(handle.channel, @truncate(u16, source_ptr));
-    handle.dma.setPage(handle.channel, @truncate(u8, source_ptr >> 16));
-    handle.dma.setCounter(handle.channel, @truncate(u16, source_len - 1));
 
     // We have configured our channel, let's go!
     handle.dma.maskChannel(handle.channel, false);
