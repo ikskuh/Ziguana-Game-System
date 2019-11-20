@@ -5,6 +5,7 @@ const TextTerminal = @import("text-terminal.zig");
 const BlockAllocator = @import("block-allocator.zig").BlockAllocator;
 const Timer = @import("timer.zig");
 const TextPainter = @import("text-painter.zig");
+const Heap = @import("heap.zig");
 
 const ColorScheme = struct {
     background: VGA.Color,
@@ -37,7 +38,9 @@ const TextLine = struct {
     length: usize,
 };
 
-var lines: BlockAllocator(TextLine, 4096) = undefined;
+// var lines: BlockAllocator(TextLine, 4096) = undefined;
+
+var lines = Heap.allocator;
 
 var firstLine: ?*TextLine = null;
 
@@ -45,7 +48,7 @@ var cursorX: usize = 0;
 var cursorY: ?*TextLine = null;
 
 pub fn init() void {
-    lines = BlockAllocator(TextLine, 4096).init();
+    // lines = BlockAllocator(TextLine, 4096).init();
 }
 
 /// Saves all text lines to the given slice.
@@ -67,13 +70,13 @@ pub fn saveTo(buffer: *std.Buffer) !void {
 }
 
 pub fn load(source: []const u8) !void {
-    lines.reset();
+    // lines.reset();
     firstLine = null;
 
     var it = std.mem.separate(source, "\n");
     var previousLine: ?*TextLine = null;
     while (it.next()) |line| {
-        var tl = try lines.alloc();
+        var tl = try lines.create(TextLine);
 
         std.mem.copy(u8, tl.text[0..], line);
         tl.length = line.len;
@@ -312,7 +315,7 @@ pub extern fn run() noreturn {
                             }
 
                             // ZIG BUG!
-                            lines.free(cursor);
+                            lines.destroy(cursor);
                             cursorY = prev;
 
                             if (firstLine == cursor) {
@@ -329,7 +332,7 @@ pub extern fn run() noreturn {
                         tl,
                         cursor,
                     } = undefined;
-                    var tl = lines.alloc() catch @panic("out of memory!");
+                    var tl = lines.create(TextLine) catch @panic("out of memory!");
                     if (cursorX == 0) {
                         // trivial case: front insert
                         tl.previous = cursor.previous;
@@ -391,7 +394,7 @@ pub extern fn run() noreturn {
                             }
 
                             // BAH, FOOTGUNS
-                            lines.free(next);
+                            lines.destroy(next);
                             // BAH, MORE FOOTGUNS
                             cursor.next = next.next;
                         }

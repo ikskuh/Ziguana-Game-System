@@ -1,5 +1,10 @@
 const std = @import("std");
 
+const warn = if (@import("builtin").os == .freestanding)
+    @import("text-terminal.zig").print
+else
+    std.debug.warn;
+
 const Operand = union(enum) {
     direct: Direct,
     indirect: Indirect,
@@ -521,9 +526,6 @@ fn getRegisterAddress(register: u4) u32 {
 }
 
 fn convertOperandToArg(comptime T: type, operand: Operand, labels: Labels) error{InvalidOperand}!T {
-    // BIG TODO:
-    // Implement offsetting here!
-    //
     switch (operand) {
         .direct => |opdir| switch (opdir) {
             .register => |reg| return T{
@@ -615,7 +617,13 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
 
     // std.debug.warn("offset = {} ({})\n", offset, absoffset);
 
+    var i: usize = 0;
+
+    warn("start parsing...\r\n");
+
     while (try parser.readNext()) |label_or_instruction| {
+        i += 1;
+
         switch (label_or_instruction) {
             .label => |lbl| {
                 // std.debug.warn("{}: # 0x{X:0>8}\n", lbl, writer.offset);
@@ -667,6 +675,10 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                             return error.OperandMismatch;
                         }
 
+                        inline for (FunType.args) |arg| {
+                            comptime std.debug.assert(arg.arg_type != null);
+                        }
+
                         switch (FunType.args.len) {
                             1 => {
                                 try @field(InstructionCore, executor.name)(&writer);
@@ -681,6 +693,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                                 try @field(InstructionCore, executor.name)(&writer, arg0, arg1);
                             },
                             4 => {
+                                // warn("assemble {}\r\n", executor.name);
                                 var arg0 = try convertOperandToArg(FunType.args[1].arg_type.?, instr.operands[0], labels);
                                 var arg1 = try convertOperandToArg(FunType.args[2].arg_type.?, instr.operands[1], labels);
                                 var arg2 = try convertOperandToArg(FunType.args[3].arg_type.?, instr.operands[2], labels);
@@ -720,6 +733,8 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
             },
         }
     }
+
+    try InstructionCore.exit(&writer);
 
     // debug output:
     // {
@@ -1404,5 +1419,15 @@ const InstructionCore = struct {
         try writer.write(@as(u8, 0x83));
         try writer.write(@as(u8, 0xC4));
         try writer.write(@as(u8, 0x04)); // pop 1 args
+    }
+
+    fn exit(writer: *Writer) WriterError!void {
+        // B844332211        mov eax,0x11223344
+        try writer.write(@as(u8, 0xB8));
+        try writer.write(@intCast(u32, @ptrToInt(API.exit)));
+
+        // FFE0              jmp eax
+        try writer.write(@as(u8, 0xFF));
+        try writer.write(@as(u8, 0xE0));
     }
 };

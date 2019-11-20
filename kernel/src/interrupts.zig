@@ -53,9 +53,13 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
                 const cr3 = asm volatile ("mov %%cr3, %[cr]"
                     : [cr] "=r" (-> usize)
                 );
-                // zig fmt: off
-                Terminal.println("Page Fault when {1} {0X} from {3}: {2}", cr2, if ((cpu.errorcode & 2) != 0) "writing" else "reading", if ((cpu.errorcode & 1) != 0) "access denied" else "page unmapped", if ((cpu.errorcode & 4) != 0) "userspace" else "kernelspace");
-                // zig fmt: on
+                Terminal.println(
+                    "Page Fault when {1} address 0x{0X} from {3}: {2}",
+                    cr2,
+                    if ((cpu.errorcode & 2) != 0) "writing" else "reading",
+                    if ((cpu.errorcode & 1) != 0) "access denied" else "page unmapped",
+                    if ((cpu.errorcode & 4) != 0) "userspace" else "kernelspace",
+                );
             }
 
             if (@import("root").currentAssemblerLine) |line| {

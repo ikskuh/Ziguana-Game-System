@@ -30,21 +30,21 @@ pub fn init() !*PageDirectory {
     return directory;
 }
 
-pub fn create_userspace(directory: *PageDirectory) !void {
+pub fn createUserspace(directory: *PageDirectory) !void {
     var pointer = @as(u32, startOfUserspace);
-    while (pointer < endOfUserspace) : (pointer += 4096) {
+    while (pointer < endOfUserspace) : (pointer += PMM.pageSize) {
         try directory.mapPage(pointer, try PMM.alloc(), .readWrite);
     }
 }
 
-pub fn create_heap(directory: *PageDirectory) !void {
+pub fn createHeap(directory: *PageDirectory) !void {
     var pointer = @as(u32, startOfHeap);
-    while (pointer < endOfHeap) : (pointer += 4096) {
+    while (pointer < endOfHeap) : (pointer += PMM.pageSize) {
         try directory.mapPage(pointer, try PMM.alloc(), .readWrite);
     }
 }
 
-pub fn enable_paging() void {
+pub fn enablePaging() void {
     var cr0 = asm volatile ("mov %%cr0, %[cr]"
         : [cr] "=r" (-> u32)
     );

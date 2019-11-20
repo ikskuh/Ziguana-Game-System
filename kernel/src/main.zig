@@ -90,6 +90,11 @@ pub const assembler_api = struct {
         // Terminal.println("getkey() = 0x{X:0>5}", keycode);
         return keycode;
     }
+
+    pub fn exit() noreturn {
+        Terminal.println("User code finished!");
+        haltForever();
+    }
 };
 
 const VgaApi = enum {
@@ -159,7 +164,13 @@ extern fn executeUsercode() noreturn {
         }
     };
 
-    if (Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null)) {
+    Terminal.println("------------------------------------------------------");
+    Terminal.println("{}", buffer.toSliceConst());
+    Terminal.println("------------------------------------------------------");
+
+    const errOrVoid = Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null);
+
+    if (errOrVoid) {
         arena.deinit();
 
         Terminal.println("Assembled code successfully!");
@@ -189,6 +200,7 @@ extern fn executeUsercode() noreturn {
         });
 
         Terminal.println("Start user code...");
+
         asm volatile ("jmp 0x40000000");
         unreachable;
     } else |err| {
@@ -325,10 +337,20 @@ pub fn switchTask(task: TaskId) *Interrupts.CpuState {
 extern const __start: u8;
 extern const __end: u8;
 
+const stackSize = @sizeOf(@Frame(kmain));
+
 pub fn main() anyerror!void {
+    // HACK: this fixes some weird behaviour with "code running into userStack"
+    _ = userStack;
+
     SerialPort.init(SerialPort.COM1, 9600, .none, .eight);
 
     Terminal.clear();
+
+    Terminal.println("Kernel Range: {X:0>8} - {X:0>8}", @ptrToInt(&__start), @ptrToInt(&__end));
+    Terminal.println("Stack Size:   {}", @as(u32, stackSize));
+    // Terminal.println("User Stack:   {X:0>8}", @ptrToInt(&userStack));
+    Terminal.println("Kernel Stack: {X:0>8}", @ptrToInt(&kernelStack));
 
     // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
     const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
@@ -394,9 +416,9 @@ pub fn main() anyerror!void {
     // map ourself into memory
     {
         var pos = @ptrToInt(&__start);
-        std.debug.assert(std.mem.isAligned(pos, 4096));
-        while (pos < @ptrToInt(&__end)) : (pos += 4096) {
-            try pageDirectory.mapPage(pos, pos, .readWrite);
+        std.debug.assert(std.mem.isAligned(pos, 0x1000));
+        while (pos < @ptrToInt(&__end)) : (pos += 0x1000) {
+            try pageDirectory.mapPage(pos, pos, .readOnly);
         }
     }
 
@@ -409,17 +431,17 @@ pub fn main() anyerror!void {
     }
 
     Terminal.print("[ ] Map user space memory...\r");
-    try VMM.create_userspace(pageDirectory);
+    try VMM.createUserspace(pageDirectory);
     Terminal.println("[X");
 
     Terminal.print("[ ] Map heap memory...\r");
-    try VMM.create_heap(pageDirectory);
+    try VMM.createHeap(pageDirectory);
     Terminal.println("[X");
 
     Terminal.println("free memory: {} pages, {Bi}", PMM.getFreePageCount(), PMM.getFreeMemory());
 
     Terminal.print("[ ] Enable paging...\r");
-    VMM.enable_paging();
+    VMM.enablePaging();
     Terminal.println("[X");
 
     Terminal.print("[ ] Initialize heap memory...\r");
@@ -445,50 +467,51 @@ pub fn main() anyerror!void {
     Timer.init();
     Terminal.println("[X");
 
-    Terminal.print("[ ] Initialize CMOS...\r");
-    CMOS.init();
-    Terminal.println("[X");
+    // Terminal.print("[ ] Initialize CMOS...\r");
+    // CMOS.init();
+    // Terminal.println("[X");
 
-    CMOS.printInfo();
+    // CMOS.printInfo();
 
-    Terminal.print("[ ] Initialize FDC...\r");
-    try FDC.init();
-    Terminal.println("[X");
+    // Terminal.print("[ ] Initialize FDC...\r");
+    // try FDC.init();
+    // Terminal.println("[X");
 
-    {
-        Terminal.println("    read sector 0...");
-        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-        try FDC.read(.A, 0, sector0[0..]);
-        for (sector0) |b, i| {
-            Terminal.print("{X:0>2} ", b);
+    // {
+    //     Terminal.println("    read sector 0...");
+    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+    //     try FDC.read(.A, 0, sector0[0..]);
+    //     for (sector0) |b, i| {
+    //         Terminal.print("{X:0>2} ", b);
 
-            if ((i % 16) == 15) {
-                Terminal.println("");
-            }
-        }
-        Terminal.println("    write sector 0...");
-        for (sector0) |*b, i| {
-            b.* = @truncate(u8, i);
-        }
-        try FDC.write(.A, 0, sector0[0..]);
-    }
+    //         if ((i % 16) == 15) {
+    //             Terminal.println("");
+    //         }
+    //     }
+    //     Terminal.println("    write sector 0...");
+    //     for (sector0) |*b, i| {
+    //         b.* = @truncate(u8, i);
+    //     }
+    //     try FDC.write(.A, 0, sector0[0..]);
+    // }
 
-    Terminal.print("[ ] Initialize PCI...\r");
-    PCI.init();
-    Terminal.println("[X");
+    // Terminal.print("[ ] Initialize PCI...\r");
+    // PCI.init();
+    // Terminal.println("[X");
 
     Terminal.print("Initialize text editor...\r\n");
     CodeEditor.init();
+
     try CodeEditor.load(developSource[0..]);
 
-    Terminal.print("Press 'space' to start system...\r\n");
-    while (true) {
-        if (Keyboard.getKey()) |key| {
-            if (key.char) |c|
-                if (c == ' ')
-                    break;
-        }
-    }
+    // Terminal.print("Press 'space' to start system...\r\n");
+    // while (true) {
+    //     if (Keyboard.getKey()) |key| {
+    //         if (key.char) |c|
+    //             if (c == ' ')
+    //                 break;
+    //     }
+    // }
 
     Terminal.print("[ ] Initialize VGA...\r");
     // prevent the terminal to write data into the video memory
@@ -550,27 +573,6 @@ export nakedcc fn _start() noreturn {
     @newStackCall(kernelStack[0..], kmain);
 }
 
-const SerialOutStream = struct {
-    const This = @This();
-    fn print(_: This, comptime fmt: []const u8, args: ...) error{Never}!void {
-        Terminal.print(fmt, args);
-    }
-
-    fn write(_: This, text: []const u8) error{Never}!void {
-        Terminal.print("{}", text);
-    }
-
-    fn writeByte(_: This, byte: u8) error{Never}!void {
-        Terminal.print("{c}", byte);
-    }
-};
-
-const serial_out_stream = SerialOutStream{};
-
-fn printLineFromFile(out_stream: var, line_info: std.debug.LineInfo) anyerror!void {
-    Terminal.println("TODO print line from the file\n");
-}
-
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
     @setCold(true);
     Terminal.enable_serial = true;
@@ -614,92 +616,4 @@ fn haltForever() noreturn {
         Interrupts.disableExternalInterrupts();
         asm volatile ("hlt");
     }
-}
-
-var kernel_panic_allocator_bytes: [4 * 1024 * 1024]u8 = undefined;
-var kernel_panic_allocator_state = std.heap.FixedBufferAllocator.init(kernel_panic_allocator_bytes[0..]);
-const kernel_panic_allocator = &kernel_panic_allocator_state.allocator;
-
-extern var __debug_info_start: u8;
-extern var __debug_info_end: u8;
-extern var __debug_abbrev_start: u8;
-extern var __debug_abbrev_end: u8;
-extern var __debug_str_start: u8;
-extern var __debug_str_end: u8;
-extern var __debug_line_start: u8;
-extern var __debug_line_end: u8;
-extern var __debug_ranges_start: u8;
-extern var __debug_ranges_end: u8;
-
-fn dwarfSectionFromSymbolAbs(start: *u8, end: *u8) std.debug.DwarfInfo.Section {
-    return std.debug.DwarfInfo.Section{
-        .offset = 0,
-        .size = @ptrToInt(end) - @ptrToInt(start),
-    };
-}
-
-fn dwarfSectionFromSymbol(start: *u8, end: *u8) std.debug.DwarfInfo.Section {
-    return std.debug.DwarfInfo.Section{
-        .offset = @ptrToInt(start),
-        .size = @ptrToInt(end) - @ptrToInt(start),
-    };
-}
-
-fn getSelfDebugInfo() !*std.debug.DwarfInfo {
-    const S = struct {
-        var have_self_debug_info = false;
-        var self_debug_info: std.debug.DwarfInfo = undefined;
-
-        var in_stream_state = std.io.InStream(anyerror){ .readFn = readFn };
-        var in_stream_pos: usize = 0;
-        const in_stream = &in_stream_state;
-
-        fn readFn(self: *std.io.InStream(anyerror), buffer: []u8) anyerror!usize {
-            const ptr = @intToPtr([*]const u8, in_stream_pos);
-            @memcpy(buffer.ptr, ptr, buffer.len);
-            in_stream_pos += buffer.len;
-            return buffer.len;
-        }
-
-        const SeekableStream = std.io.SeekableStream(anyerror, anyerror);
-        var seekable_stream_state = SeekableStream{
-            .seekToFn = seekToFn,
-            .seekByFn = seekForwardFn,
-
-            .getPosFn = getPosFn,
-            .getEndPosFn = getEndPosFn,
-        };
-        const seekable_stream = &seekable_stream_state;
-
-        fn seekToFn(self: *SeekableStream, pos: u64) anyerror!void {
-            in_stream_pos = @intCast(usize, pos);
-        }
-        fn seekForwardFn(self: *SeekableStream, pos: i64) anyerror!void {
-            in_stream_pos = @bitCast(usize, @bitCast(isize, in_stream_pos) +% @intCast(isize, pos));
-        }
-        fn getPosFn(self: *SeekableStream) anyerror!u64 {
-            return in_stream_pos;
-        }
-        fn getEndPosFn(self: *SeekableStream) anyerror!u64 {
-            return @ptrToInt(&__debug_ranges_end);
-        }
-    };
-    if (S.have_self_debug_info)
-        return &S.self_debug_info;
-
-    S.self_debug_info = std.debug.DwarfInfo{
-        .dwarf_seekable_stream = S.seekable_stream,
-        .dwarf_in_stream = S.in_stream,
-        .endian = builtin.Endian.Little,
-        .debug_info = dwarfSectionFromSymbol(&__debug_info_start, &__debug_info_end),
-        .debug_abbrev = dwarfSectionFromSymbolAbs(&__debug_abbrev_start, &__debug_abbrev_end),
-        .debug_str = dwarfSectionFromSymbolAbs(&__debug_str_start, &__debug_str_end),
-        .debug_line = dwarfSectionFromSymbol(&__debug_line_start, &__debug_line_end),
-        .debug_ranges = dwarfSectionFromSymbolAbs(&__debug_ranges_start, &__debug_ranges_end),
-        .abbrev_table_list = undefined,
-        .compile_unit_list = undefined,
-        .func_list = undefined,
-    };
-    try std.debug.openDwarfDebugInfo(&S.self_debug_info, kernel_panic_allocator);
-    return &S.self_debug_info;
 }
