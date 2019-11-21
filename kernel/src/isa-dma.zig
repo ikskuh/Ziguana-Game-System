@@ -100,19 +100,19 @@ const DmaController = struct {
     request: u16,
 
     pub fn setTransferMode(dma: DmaController, transferMode: TransferMode) void {
-        IO.outb(dma.transferMode, @bitCast(u8, transferMode));
+        IO.out(u8, dma.transferMode, @bitCast(u8, transferMode));
     }
 
     pub fn enable(dma: DmaController, enabled: bool) void {
-        IO.outb(dma.command, if (enabled) @as(u8, 0b00000100) else 0);
+        IO.out(u8, dma.command, if (enabled) @as(u8, 0b00000100) else 0);
     }
 
     pub fn maskChannel(dma: DmaController, channel: u2, masked: bool) void {
-        IO.outb(dma.channelMask, @as(u8, channel) | if (masked) @as(u8, 0b100) else 0);
+        IO.out(u8, dma.channelMask, @as(u8, channel) | if (masked) @as(u8, 0b100) else 0);
     }
 
     pub fn reset(dma: DmaController) void {
-        IO.outb(dma.resetPort, 0xFF);
+        IO.out(u8, dma.resetPort, 0xFF);
     }
 
     fn resetFlipFlop(dma: DmaController) void {
@@ -121,8 +121,8 @@ const DmaController = struct {
 
     pub fn setStartAddress(dma: DmaController, channel: u2, address: u16) void {
         dma.resetFlipFlop();
-        IO.outb(dma.start[channel], @truncate(u8, address));
-        IO.outb(dma.start[channel], @truncate(u8, address >> 8));
+        IO.out(u8, dma.start[channel], @truncate(u8, address));
+        IO.out(u8, dma.start[channel], @truncate(u8, address >> 8));
     }
 
     pub fn setCounter(dma: DmaController, channel: u2, count: u16) void {

@@ -2,8 +2,13 @@ const std = @import("std");
 const io = @import("io.zig");
 const Terminal = @import("text-terminal.zig");
 
-const outportb = io.outb;
-const inportb = io.inb;
+fn outportb(port: u16, val: u8) void {
+    io.out(u8, port, val);
+}
+
+fn inportb(port: u16) u8 {
+    return io.in(u8, port);
+}
 
 pub const VgaMode = enum {
     mode320x200,
@@ -243,19 +248,19 @@ const PALETTE_DATA = 0x03c9;
 
 // see: http://www.brackeen.com/vga/source/bc31/palette.c.html
 pub fn loadPalette(palette: []const RGB) void {
-    io.outb(PALETTE_INDEX, 0); // tell the VGA that palette data is coming.
+    io.out(u8, PALETTE_INDEX, 0); // tell the VGA that palette data is coming.
     for (palette) |rgb| {
-        io.outb(PALETTE_DATA, rgb.r >> 2); // write the data
-        io.outb(PALETTE_DATA, rgb.g >> 2);
-        io.outb(PALETTE_DATA, rgb.b >> 2);
+        io.out(u8, PALETTE_DATA, rgb.r >> 2); // write the data
+        io.out(u8, PALETTE_DATA, rgb.g >> 2);
+        io.out(u8, PALETTE_DATA, rgb.b >> 2);
     }
 }
 
 pub fn setPaletteEntry(entry: u8, color: RGB) void {
-    io.outb(PALETTE_INDEX, entry); // tell the VGA that palette data is coming.
-    io.outb(PALETTE_DATA, color.r >> 2); // write the data
-    io.outb(PALETTE_DATA, color.g >> 2);
-    io.outb(PALETTE_DATA, color.b >> 2);
+    io.out(u8, PALETTE_INDEX, entry); // tell the VGA that palette data is coming.
+    io.out(u8, PALETTE_DATA, color.r >> 2); // write the data
+    io.out(u8, PALETTE_DATA, color.g >> 2);
+    io.out(u8, PALETTE_DATA, color.b >> 2);
 }
 
 // see: http://www.brackeen.com/vga/source/bc31/palette.c.html
@@ -264,9 +269,9 @@ pub fn waitForVSync() void {
     const VRETRACE = 0x08;
 
     // wait until done with vertical retrace
-    while ((io.inb(INPUT_STATUS) & VRETRACE) != 0) {}
+    while ((io.in(u8, INPUT_STATUS) & VRETRACE) != 0) {}
     // wait until done refreshing
-    while ((io.inb(INPUT_STATUS) & VRETRACE) == 0) {}
+    while ((io.in(u8, INPUT_STATUS) & VRETRACE) == 0) {}
 }
 
 const VGA_AC_INDEX = 0x3C0;

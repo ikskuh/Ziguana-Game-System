@@ -7,14 +7,14 @@ const PCI_CONFIG_ADDRESS = 0x0CF8;
 
 fn pci_read(bus: u8, device: u5, function: u3, register: u8) u32 {
     const address = 0x80000000 | (@as(u32, bus) << 16) | (@as(u32, device) << 11) | (@as(u32, function) << 8) | (register & 0xFC);
-    IO.outl(PCI_CONFIG_ADDRESS, address);
-    return IO.inl(PCI_CONFIG_DATA);
+    IO.out(u32, PCI_CONFIG_ADDRESS, address);
+    return IO.in(u32, PCI_CONFIG_DATA);
 }
 
 fn pci_write(bus: u8, device: u5, function: u3, register: u8, value: u32) void {
     const address = 0x80000000 | (@as(u32, bus) << 16) | (@as(u32, device) << 11) | (@as(u32, function) << 8) | (register & 0xFC);
-    IO.outl(PCI_CONFIG_ADDRESS, address);
-    IO.outl(PCI_CONFIG_DATA, value);
+    IO.out(u32, PCI_CONFIG_ADDRESS, address);
+    IO.out(u32, PCI_CONFIG_DATA, value);
 }
 
 pub fn init() void {

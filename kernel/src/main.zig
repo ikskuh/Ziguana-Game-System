@@ -24,6 +24,8 @@ const Heap = @import("heap.zig");
 const PMM = @import("pmm.zig");
 const VMM = @import("vmm.zig");
 
+const ATA = @import("ata.zig");
+
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 var usercodeValid: bool = false;
@@ -164,13 +166,7 @@ extern fn executeUsercode() noreturn {
         }
     };
 
-    Terminal.println("------------------------------------------------------");
-    Terminal.println("{}", buffer.toSliceConst());
-    Terminal.println("------------------------------------------------------");
-
-    const errOrVoid = Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null);
-
-    if (errOrVoid) {
+    if (Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null)) {
         arena.deinit();
 
         Terminal.println("Assembled code successfully!");
@@ -467,37 +463,59 @@ pub fn main() anyerror!void {
     Timer.init();
     Terminal.println("[X");
 
-    // Terminal.print("[ ] Initialize CMOS...\r");
-    // CMOS.init();
-    // Terminal.println("[X");
+    Terminal.print("[ ] Initialize CMOS...\r");
+    CMOS.init();
+    Terminal.println("[X");
 
-    // CMOS.printInfo();
+    CMOS.printInfo();
 
-    // Terminal.print("[ ] Initialize FDC...\r");
-    // try FDC.init();
-    // Terminal.println("[X");
+    Terminal.print("[ ] Initialize FDC...\r");
+    try FDC.init();
+    Terminal.println("[X");
 
-    // {
-    //     Terminal.println("    read sector 0...");
-    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-    //     try FDC.read(.A, 0, sector0[0..]);
-    //     for (sector0) |b, i| {
-    //         Terminal.print("{X:0>2} ", b);
+    {
+        Terminal.println("    read sector 0...");
+        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+        try FDC.read(.A, 0, sector0[0..]);
+        for (sector0) |b, i| {
+            Terminal.print("{X:0>2} ", b);
 
-    //         if ((i % 16) == 15) {
-    //             Terminal.println("");
-    //         }
-    //     }
-    //     Terminal.println("    write sector 0...");
-    //     for (sector0) |*b, i| {
-    //         b.* = @truncate(u8, i);
-    //     }
-    //     try FDC.write(.A, 0, sector0[0..]);
-    // }
+            if ((i % 16) == 15) {
+                Terminal.println("");
+            }
+        }
+        Terminal.println("    write sector 0...");
+        for (sector0) |*b, i| {
+            b.* = @truncate(u8, i);
+        }
+        try FDC.write(.A, 0, sector0[0..]);
+    }
 
-    // Terminal.print("[ ] Initialize PCI...\r");
-    // PCI.init();
-    // Terminal.println("[X");
+    Terminal.print("[ ] Initialize ATA...\r");
+    try ATA.init();
+    Terminal.println("[X");
+
+    {
+        Terminal.println("    read sector 0...");
+        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+        try ATA.read(0, 0, sector0[0..]);
+        for (sector0) |b, i| {
+            Terminal.print("{X:0>2} ", b);
+
+            if ((i % 16) == 15) {
+                Terminal.println("");
+            }
+        }
+        Terminal.println("    write sector 0...");
+        for (sector0) |*b, i| {
+            b.* = @truncate(u8, i);
+        }
+        try ATA.write(0, 0, sector0[0..]);
+    }
+
+    Terminal.print("[ ] Initialize PCI...\r");
+    PCI.init();
+    Terminal.println("[X");
 
     Terminal.print("Initialize text editor...\r\n");
     CodeEditor.init();

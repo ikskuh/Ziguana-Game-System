@@ -15,13 +15,13 @@ pub const COM4 = 0x2E8;
 
 // Prüft, ob man bereits schreiben kann
 pub fn is_transmit_empty(base: u16) bool {
-    return (io.inb(base + LSR) & 0x20) != 0;
+    return (io.in(u8, base + LSR) & 0x20) != 0;
 }
 
 // Byte senden
 fn write_com(base: u16, chr: u8) void {
     while (!is_transmit_empty(base)) {}
-    io.outb(base, chr);
+    io.out(u8, base, chr);
 }
 
 pub fn put(c: u8) void {
@@ -55,21 +55,21 @@ pub fn init(base: u16, baud: usize, parity: Parity, bits: BitCount) void {
     const baudSplits = @bitCast([2]u8, @intCast(u16, 115200 / baud));
 
     // Interrupt ausschalten
-    io.outb(base + IER, 0x00);
+    io.out(u8, base + IER, 0x00);
 
     // DLAB-Bit setzen
-    io.outb(base + LCR, 0x80);
+    io.out(u8, base + LCR, 0x80);
 
     // Teiler (low) setzen
-    io.outb(base + 0, baudSplits[0]);
+    io.out(u8, base + 0, baudSplits[0]);
 
     // Teiler (high) setzen
-    io.outb(base + 1, baudSplits[1]);
+    io.out(u8, base + 1, baudSplits[1]);
 
     // Anzahl Bits, Parität, usw setzen (DLAB zurücksetzen)
-    io.outb(base + LCR, ((@enumToInt(parity) & 0x7) << 3) | ((@enumToInt(bits) - 5) & 0x3));
+    io.out(u8, base + LCR, ((@enumToInt(parity) & 0x7) << 3) | ((@enumToInt(bits) - 5) & 0x3));
 
     // Initialisierung abschließen
-    io.outb(base + FCR, 0xC7);
-    io.outb(base + MCR, 0x0B);
+    io.out(u8, base + FCR, 0xC7);
+    io.out(u8, base + MCR, 0x0B);
 }

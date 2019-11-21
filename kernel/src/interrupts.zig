@@ -84,9 +84,9 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
             }
 
             if (cpu.interrupt >= 0x28) {
-                io.outb(0xa0, 0x20); // ACK slave PIC
+                io.out(u8, 0xA0, 0x20); // ACK slave PIC
             }
-            io.outb(0x20, 0x20); // ACK master PIC
+            io.out(u8, 0x20, 0x20); // ACK master PIC
         },
         0x30 => {
             // assembler debug call
@@ -123,16 +123,16 @@ pub fn init() void {
     asm volatile ("lidt idtp");
 
     // Master-PIC initialisieren
-    io.outb(0x20, 0x11); // Initialisierungsbefehl fuer den PIC
-    io.outb(0x21, 0x20); // Interruptnummer fuer IRQ 0
-    io.outb(0x21, 0x04); // An IRQ 2 haengt der Slave
-    io.outb(0x21, 0x01); // ICW 4
+    io.out(u8, 0x20, 0x11); // Initialisierungsbefehl fuer den PIC
+    io.out(u8, 0x21, 0x20); // Interruptnummer fuer IRQ 0
+    io.out(u8, 0x21, 0x04); // An IRQ 2 haengt der Slave
+    io.out(u8, 0x21, 0x01); // ICW 4
 
     // Slave-PIC initialisieren
-    io.outb(0xa0, 0x11); // Initialisierungsbefehl fuer den PIC
-    io.outb(0xa1, 0x28); // Interruptnummer fuer IRQ 8
-    io.outb(0xa1, 0x02); // An IRQ 2 haengt der Slave
-    io.outb(0xa1, 0x01); // ICW 4
+    io.out(u8, 0xa0, 0x11); // Initialisierungsbefehl fuer den PIC
+    io.out(u8, 0xa1, 0x28); // Interruptnummer fuer IRQ 8
+    io.out(u8, 0xa1, 0x02); // An IRQ 2 haengt der Slave
+    io.out(u8, 0xa1, 0x01); // ICW 4
 }
 
 pub fn fireInterrupt(comptime intr: u32) void {
@@ -145,10 +145,10 @@ pub fn fireInterrupt(comptime intr: u32) void {
 pub fn enableIRQ(irqNum: u4) void {
     switch (irqNum) {
         0...7 => {
-            io.outb(0x21, io.inb(0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum)));
+            io.out(u8, 0x21, io.in(u8, 0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum)));
         },
         8...15 => {
-            io.outb(0x21, io.inb(0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum - 8)));
+            io.out(u8, 0x21, io.in(u8, 0x21) & ~(@as(u8, 1) << @intCast(u3, irqNum - 8)));
         },
     }
 }
@@ -156,24 +156,24 @@ pub fn enableIRQ(irqNum: u4) void {
 pub fn disableIRQ(irqNum: u4) void {
     switch (irqNum) {
         0...7 => {
-            io.outb(0x21, io.inb(0x21) | (@as(u8, 1) << @intCast(u3, irqNum)));
+            io.out(u8, 0x21, io.in(u8, 0x21) | (@as(u8, 1) << @intCast(u3, irqNum)));
         },
         8...15 => {
-            io.outb(0x21, io.inb(0x21) | (@as(u8, 1) << @intCast(u3, irqNum - 8)));
+            io.out(u8, 0x21, io.in(u8, 0x21) | (@as(u8, 1) << @intCast(u3, irqNum - 8)));
         },
     }
 }
 
 pub fn enableAllIRQs() void {
     // Alle IRQs aktivieren (demaskieren)
-    io.outb(0x21, 0x0);
-    io.outb(0xa1, 0x0);
+    io.out(u8, 0x21, 0x0);
+    io.out(u8, 0xa1, 0x0);
 }
 
 pub fn disableAllIRQs() void {
     // Alle IRQs aktivieren (demaskieren)
-    io.outb(0x21, 0xFF);
-    io.outb(0xa1, 0xFF);
+    io.out(u8, 0x21, 0xFF);
+    io.out(u8, 0xa1, 0xFF);
 }
 
 pub fn enableExternalInterrupts() void {

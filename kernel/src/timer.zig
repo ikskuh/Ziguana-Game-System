@@ -22,9 +22,9 @@ pub fn init() void {
 
     ticks = 0;
 
-    IO.outb(0x43, 0x34); // Binary, Mode 2, LSB first, Channel 0
-    IO.outb(0x40, @truncate(u8, timer_limit & 0xFF));
-    IO.outb(0x40, @truncate(u8, timer_limit >> 8));
+    IO.out(u8, 0x43, 0x34); // Binary, Mode 2, LSB first, Channel 0
+    IO.out(u8, 0x40, @truncate(u8, timer_limit & 0xFF));
+    IO.out(u8, 0x40, @truncate(u8, timer_limit >> 8));
 
     Interrupts.setIRQHandler(0, handleTimerIRQ);
     Interrupts.enableIRQ(0);

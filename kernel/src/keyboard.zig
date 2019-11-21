@@ -5,8 +5,8 @@ const Terminal = @import("text-terminal.zig");
 fn sendCommand(cmd: u8) void {
 
     // Warten bis die Tastatur bereit ist, und der Befehlspuffer leer ist
-    while ((io.inb(0x64) & 0x2) != 0) {}
-    io.outb(0x60, cmd);
+    while ((io.in(u8, 0x64) & 0x2) != 0) {}
+    io.out(u8, 0x60, cmd);
 }
 
 pub fn init() void {
@@ -15,8 +15,8 @@ pub fn init() void {
     // Interrupts.setkbdIrqHandler(12, mouseIrqHandler);
 
     // Tastaturpuffer leeren
-    while ((io.inb(0x64) & 0x1) != 0) {
-        _ = io.inb(0x60);
+    while ((io.in(u8, 0x64) & 0x1) != 0) {
+        _ = io.in(u8, 0x60);
     }
 
     // Tastatur aktivieren
@@ -125,7 +125,7 @@ var e1Byte0: u8 = undefined;
 fn kbdIrqHandler(cpu: *Interrupts.CpuState) *Interrupts.CpuState {
     var newCpu = cpu;
 
-    const inputData = io.inb(0x60);
+    const inputData = io.in(u8, 0x60);
     irqState = switch (irqState) {
         .default => switch (inputData) {
             0xE0 => IrqState.receiveE0,
