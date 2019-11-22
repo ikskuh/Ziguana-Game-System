@@ -1,4 +1,4 @@
-const Error = error{NotOnDisk};
+const Error = error{AddressNotOnDevice};
 
 pub const DriveLayout = struct {
     headCount: usize,
@@ -14,7 +14,7 @@ pub const CHS = struct {
 
 pub fn lba2chs(layout: DriveLayout, lba: usize) Error!CHS {
     if (lba >= layout.headCount * layout.cylinderCount * layout.sectorCount)
-        return error.NotOnDisk;
+        return error.AddressNotOnDevice;
     return CHS{
         .cylinder = lba / (layout.headCount * layout.sectorCount),
         .head = ((lba % (layout.headCount * layout.sectorCount)) / layout.sectorCount),
@@ -24,11 +24,11 @@ pub fn lba2chs(layout: DriveLayout, lba: usize) Error!CHS {
 
 pub fn chs2lba(layout: DriveLayout, chs: CHS) Error!usize {
     if (chs.sector < 1 or chs.sector > layout.sectorCount)
-        return error.NotOnDisk;
+        return error.AddressNotOnDevice;
     if (chs.head >= layout.headCount)
-        return error.NotOnDisk;
+        return error.AddressNotOnDevice;
     if (chs.cylinder >= layout.cylinderCount)
-        return error.NotOnDisk;
+        return error.AddressNotOnDevice;
     return layout.sectorCount * layout.headCount * chs.cylinder + layout.sectorCount * chs.head + chs.sector - 1;
 }
 

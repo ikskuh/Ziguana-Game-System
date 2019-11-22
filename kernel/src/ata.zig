@@ -8,6 +8,8 @@ const CHS = @import("chs.zig");
 
 const BlockIterator = @import("block-iterator.zig").BlockIterator;
 
+usingnamespace @import("block-device.zig");
+
 fn wait400NS(port: u16) void {
     _ = IO.in(u8, port);
     _ = IO.in(u8, port);
@@ -15,17 +17,10 @@ fn wait400NS(port: u16) void {
     _ = IO.in(u8, port);
 }
 
-// struct cpu *ata_isr(struct cpu *cpu)
-// {
-//     // hal_debug("ATA isr!\n");
-//     return cpu;
-// }
-
-// static int devcnt = 0;
-
 const Device = struct {
     const This = @This();
 
+    device: BlockDevice,
     blockSize: usize,
     sectorCount: usize,
     isMaster: bool,
@@ -150,7 +145,7 @@ const Device = struct {
     }
 
     const Error = error{
-        AtaError,
+        DeviceError,
         Timeout,
     };
 
@@ -159,17 +154,31 @@ const Device = struct {
         while (Timer.ticks < end) {
             const stat = device.status();
             if (stat.hasError)
-                return error.AtaError;
+                return error.DeviceError;
             if (stat.ready)
                 return;
         }
         return error.Timeout;
     }
+
+    fn setupParameters(device: Device, lba: u24, blockCount: u8) void {
+        if (device.isMaster) {
+            IO.out(u8, device.ports.devSelect, 0xE0);
+        } else {
+            IO.out(u8, device.ports.devSelect, 0xF0);
+        }
+        IO.out(u8, device.ports.sectors, blockCount);
+        IO.out(u8, device.ports.lbaLow, @truncate(u8, lba));
+        IO.out(u8, device.ports.lbaMid, @truncate(u8, lba >> 8));
+        IO.out(u8, device.ports.lbaHigh, @truncate(u8, lba >> 16));
+    }
 };
 
 var devs: [8]Device = undefined;
 
-pub fn init() error{}!void {
+var blockdevs: [8]*BlockDevice = undefined;
+
+pub fn init() error{}![]*BlockDevice {
     const PortConfig = struct {
         port: u16,
         isMaster: bool,
@@ -181,11 +190,19 @@ pub fn init() error{}!void {
         .{ .port = 0x170, .isMaster = false },
         .{ .port = 0x1E8, .isMaster = true },
         .{ .port = 0x1E8, .isMaster = false },
+        .{ .port = 0x168, .isMaster = true },
         .{ .port = 0x168, .isMaster = false },
     };
 
+    var deviceCount: usize = 0;
+
     for (baseports) |cfg, i| {
         devs[i] = Device{
+            .device = BlockDevice{
+                .icon = .hdd,
+                .read = read,
+                .write = write,
+            },
             .blockSize = 512,
             .baseport = cfg.port,
             .isMaster = cfg.isMaster,
@@ -208,16 +225,20 @@ pub fn init() error{}!void {
         devs[i].present = devs[i].initialize();
 
         if (devs[i].present) {
-            TextTerminal.println("ATA{} = {}", i, devs[i]);
+            blockdevs[deviceCount] = &devs[i].device;
+            deviceCount += 1;
         }
     }
+
+    return blockdevs[0..deviceCount];
 }
 
-pub fn read(index: u3, lba: usize, buffer: []u8) !void {
-    return readBlocks(devs[index], lba, buffer);
+pub fn read(dev: *BlockDevice, lba: usize, buffer: []u8) BlockDevice.Error!void {
+    const parent = @fieldParentPtr(Device, "device", dev);
+    return readBlocks(parent.*, @intCast(u24, lba), buffer);
 }
 
-fn readBlocks(device: Device, lba: usize, buffer: []u8) !void {
+fn readBlocks(device: Device, lba: u24, buffer: []u8) BlockDevice.Error!void {
     if (!device.present)
         return error.DeviceNotPresent;
 
@@ -226,20 +247,12 @@ fn readBlocks(device: Device, lba: usize, buffer: []u8) !void {
 
     const ports = device.ports;
 
-    if (device.sectorCount <= 0)
-        return error.NoSectors;
-
     const blockCount = @intCast(u8, buffer.len / device.blockSize);
 
-    if (device.isMaster) {
-        IO.out(u8, ports.devSelect, 0xE0);
-    } else {
-        IO.out(u8, ports.devSelect, 0xF0);
-    }
-    IO.out(u8, ports.sectors, blockCount);
-    IO.out(u8, ports.lbaLow, @truncate(u8, lba));
-    IO.out(u8, ports.lbaMid, @truncate(u8, lba >> 8));
-    IO.out(u8, ports.lbaHigh, @truncate(u8, lba >> 16));
+    if (lba + blockCount > device.sectorCount)
+        return error.AddressNotOnDevice;
+
+    device.setupParameters(lba, blockCount);
     IO.out(u8, ports.cmd, 0x20);
 
     var block: usize = 0;
@@ -262,11 +275,12 @@ fn readBlocks(device: Device, lba: usize, buffer: []u8) !void {
     }
 }
 
-pub fn write(index: u3, lba: usize, buffer: []const u8) !void {
-    return writeBlocks(devs[index], lba, buffer);
+pub fn write(dev: *BlockDevice, lba: usize, buffer: []const u8) BlockDevice.Error!void {
+    const parent = @fieldParentPtr(Device, "device", dev);
+    return writeBlocks(parent.*, @intCast(u24, lba), buffer);
 }
 
-fn writeBlocks(device: Device, lba: usize, buffer: []const u8) !void {
+fn writeBlocks(device: Device, lba: u24, buffer: []const u8) BlockDevice.Error!void {
     if (!device.present)
         return error.DeviceNotPresent;
 
@@ -275,23 +289,13 @@ fn writeBlocks(device: Device, lba: usize, buffer: []const u8) !void {
 
     const ports = device.ports;
 
-    if (device.sectorCount <= 0)
-        return error.NoSectors;
-
     const blockCount = @intCast(u8, buffer.len / device.blockSize);
 
-    if (device.isMaster) {
-        IO.out(u8, ports.devSelect, 0xE0);
-    } else {
-        IO.out(u8, ports.devSelect, 0xF0);
-    }
-    IO.out(u8, ports.sectors, blockCount);
-    IO.out(u8, ports.lbaLow, @truncate(u8, lba));
-    IO.out(u8, ports.lbaMid, @truncate(u8, lba >> 8));
-    IO.out(u8, ports.lbaHigh, @truncate(u8, lba >> 16));
-    IO.out(u8, ports.cmd, 0x30);
+    if (lba + blockCount > device.sectorCount)
+        return error.AddressNotOnDevice;
 
-    // hal_debug("HAL|Write %d\n", lba);
+    device.setupParameters(lba, blockCount);
+    IO.out(u8, ports.cmd, 0x30);
 
     var block: usize = 0;
     while (block < blockCount) : (block += 1) {

@@ -10,8 +10,24 @@ const CHS = @import("chs.zig");
 
 const BlockIterator = @import("block-iterator.zig").BlockIterator;
 
+usingnamespace @import("block-device.zig");
+
 const defaultRetryCount = 5;
 const disableReadWriteRetries = false;
+
+const FloppyError = BlockDevice.Error || error{
+    InvalidFifoOperation,
+    NoDriveSelected,
+    ControllerIsBusy,
+    ExpectedValueWasNotTwo,
+    AlreadyInProgress,
+    InvalidAddress,
+    EmptyData,
+    DataTooLarge,
+    InvalidChannel,
+    DataCrosses64kBoundary,
+    SenseInterruptFailure,
+};
 
 pub const microHDFloppyLayout = CHS.DriveLayout{
     .headCount = 2,
@@ -36,6 +52,7 @@ const IoMode = enum {
 };
 
 const Drive = struct {
+    device: BlockDevice,
     available: bool,
     id: u2,
     ioMode: IoMode,
@@ -43,17 +60,19 @@ const Drive = struct {
 
 var allDrives: [4]Drive = undefined;
 
+var blockDevices: [4]*BlockDevice = undefined;
+
 var currentDrive: ?*Drive = null;
 
-fn getCurrentDrive() !*Drive {
+fn getCurrentDrive() FloppyError!*Drive {
     const drive = currentDrive orelse return error.NoDriveSelected;
     if (!drive.available)
-        return error.DriveNotAvailable;
+        return error.DeviceNotPresent;
     return drive;
 }
 
 /// discovers and initializes all floppy drives
-pub fn init() !void {
+pub fn init() ![]*BlockDevice {
     Interrupts.setIRQHandler(6, handleIRQ6);
     Interrupts.enableIRQ(6);
 
@@ -61,6 +80,11 @@ pub fn init() !void {
 
     for (allDrives) |*drive, i| {
         drive.* = Drive{
+            .device = BlockDevice{
+                .icon = .floppy,
+                .read = read,
+                .write = write,
+            },
             .available = switch (i) {
                 0 => if (drives.A) |d| d == .microHD else false,
                 1 => if (drives.B) |d| d == .microHD else false,
@@ -93,9 +117,14 @@ pub fn init() !void {
     // Lock down configuration over controller resets
     try execLock(true);
 
+    var driveCount: usize = 0;
+
     for (allDrives) |*drive| {
         if (!drive.available)
             continue;
+
+        blockDevices[driveCount] = &drive.device;
+        driveCount += 1;
 
         try selectDrive(drive);
 
@@ -108,11 +137,17 @@ pub fn init() !void {
 
         try setMotorPower(.off);
     }
+
+    return blockDevices[0..driveCount];
+}
+
+fn read(blockdev: *BlockDevice, startingBlock: usize, data: []u8) BlockDevice.Error!void {
+    return read_NoErrorMapping(blockdev, startingBlock, data) catch |err| return mapFloppyError(err);
 }
 
 /// reads blocks from drive `name`, starting at block `startingBlock`.
-pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
-    try selectDrive(&allDrives[@enumToInt(name)]);
+fn read_NoErrorMapping(blockdev: *BlockDevice, startingBlock: usize, data: []u8) FloppyError!void {
+    try selectDrive(@fieldParentPtr(Drive, "device", blockdev));
 
     var drive = try getCurrentDrive();
 
@@ -126,7 +161,7 @@ pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
     var iterator = try BlockIterator(.mutable).init(startingBlock, data, 512);
     while (iterator.next()) |block| {
         var retries: usize = 5;
-        var lastError: anyerror = undefined;
+        var lastError: FloppyError = undefined;
         while (retries > 0) : (retries -= 1) {
             if (disableReadWriteRetries) {
                 try readBlock(block.block, block.slice);
@@ -144,8 +179,12 @@ pub fn read(name: DriveName, startingBlock: usize, data: []u8) !void {
 }
 
 /// writes blocks from drive `name`, starting at block `startingBlock`.
-pub fn write(name: DriveName, startingBlock: usize, data: []const u8) !void {
-    try selectDrive(&allDrives[@enumToInt(name)]);
+fn write(blockdev: *BlockDevice, startingBlock: usize, data: []const u8) BlockDevice.Error!void {
+    return write_NoErrorMapping(blockdev, startingBlock, data) catch |err| return mapFloppyError(err);
+}
+
+fn write_NoErrorMapping(blockdev: *BlockDevice, startingBlock: usize, data: []const u8) FloppyError!void {
+    try selectDrive(@fieldParentPtr(Drive, "device", blockdev));
 
     var drive = try getCurrentDrive();
 
@@ -159,7 +198,7 @@ pub fn write(name: DriveName, startingBlock: usize, data: []const u8) !void {
     var iterator = try BlockIterator(.constant).init(startingBlock, data, 512);
     while (iterator.next()) |block| {
         var retries: usize = defaultRetryCount;
-        var lastError: anyerror = undefined;
+        var lastError: FloppyError = undefined;
         while (retries > 0) : (retries -= 1) {
             if (disableReadWriteRetries) {
                 try writeBlock(block.block, block.slice);
@@ -234,7 +273,7 @@ fn setMotorPower(power: MotorPower) !void {
 
 fn selectDrive(drive: *Drive) !void {
     if (!drive.available)
-        return error.DriveNotAvailable;
+        return error.DeviceNotPresent;
 
     var dor = @bitCast(DigitalOutputRegister, readRegister(.digitalOutputRegister));
     dor.driveSelect = drive.id;
@@ -536,6 +575,18 @@ fn waitForInterrupt(timeout: usize) error{Timeout}!void {
         asm volatile ("hlt");
     }
     return error.Timeout;
+}
+
+fn mapFloppyError(err: FloppyError) BlockDevice.Error {
+    return switch (err) {
+        error.Timeout => error.Timeout,
+        error.DeviceNotPresent => error.DeviceNotPresent,
+        error.DataIsNotAligned => error.DataIsNotAligned,
+        error.AddressNotOnDevice => error.AddressNotOnDevice,
+        error.BlockSizeMustBePowerOfTwo => error.BlockSizeMustBePowerOfTwo,
+        error.BufferLengthMustBeMultipleOfBlockSize => error.BufferLengthMustBeMultipleOfBlockSize,
+        else => error.DeviceError,
+    };
 }
 
 const FloppyCommand = enum(u5) {

@@ -470,48 +470,55 @@ pub fn main() anyerror!void {
     CMOS.printInfo();
 
     Terminal.print("[ ] Initialize FDC...\r");
-    try FDC.init();
+    const floppyDrives = try FDC.init();
     Terminal.println("[X");
-
-    {
-        Terminal.println("    read sector 0...");
-        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-        try FDC.read(.A, 0, sector0[0..]);
-        for (sector0) |b, i| {
-            Terminal.print("{X:0>2} ", b);
-
-            if ((i % 16) == 15) {
-                Terminal.println("");
-            }
-        }
-        Terminal.println("    write sector 0...");
-        for (sector0) |*b, i| {
-            b.* = @truncate(u8, i);
-        }
-        try FDC.write(.A, 0, sector0[0..]);
+    for (floppyDrives) |dev| {
+        Terminal.println("FDD: {}", dev);
     }
+
+    // {
+    //     Terminal.println("    read sector 0...");
+    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+    //     try FDC.read(.A, 0, sector0[0..]);
+    //     for (sector0) |b, i| {
+    //         Terminal.print("{X:0>2} ", b);
+
+    //         if ((i % 16) == 15) {
+    //             Terminal.println("");
+    //         }
+    //     }
+    //     Terminal.println("    write sector 0...");
+    //     for (sector0) |*b, i| {
+    //         b.* = @truncate(u8, i);
+    //     }
+    //     try FDC.write(.A, 0, sector0[0..]);
+    // }
 
     Terminal.print("[ ] Initialize ATA...\r");
-    try ATA.init();
+    const ataDrives = try ATA.init();
     Terminal.println("[X");
 
-    {
-        Terminal.println("    read sector 0...");
-        var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-        try ATA.read(0, 0, sector0[0..]);
-        for (sector0) |b, i| {
-            Terminal.print("{X:0>2} ", b);
-
-            if ((i % 16) == 15) {
-                Terminal.println("");
-            }
-        }
-        Terminal.println("    write sector 0...");
-        for (sector0) |*b, i| {
-            b.* = @truncate(u8, i);
-        }
-        try ATA.write(0, 0, sector0[0..]);
+    for (ataDrives) |dev| {
+        Terminal.println("ATA: {}", dev);
     }
+
+    // {
+    //     Terminal.println("    read sector 0...");
+    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
+    //     try ATA.read(0, 0, sector0[0..]);
+    //     for (sector0) |b, i| {
+    //         Terminal.print("{X:0>2} ", b);
+
+    //         if ((i % 16) == 15) {
+    //             Terminal.println("");
+    //         }
+    //     }
+    //     Terminal.println("    write sector 0...");
+    //     for (sector0) |*b, i| {
+    //         b.* = @truncate(u8, i);
+    //     }
+    //     try ATA.write(0, 0, sector0[0..]);
+    // }
 
     Terminal.print("[ ] Initialize PCI...\r");
     PCI.init();
