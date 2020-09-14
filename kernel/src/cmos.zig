@@ -44,36 +44,39 @@ fn bcdDecode(val: u8) [2]u8 {
     };
 }
 
-pub fn init() void { }
-
+pub fn init() void {}
 
 pub fn printInfo() void {
-    TextTerminal.println(
-        "Clock: {}:{}:{}",
+    TextTerminal.println("Clock: {}:{}:{}", .{
         bcdDecode(read(0x04)),
         bcdDecode(read(0x02)),
         bcdDecode(read(0x00)),
-    );
+    });
 
     const floppyDrives = read(0x10);
 
-    var buf = " " ** 64;
-    TextTerminal.println("Floppy A: {}", switch ((floppyDrives >> 4) & 0xF) {
-        0b0000 => @as([]const u8, "none"),
+    var buf = (" " ** 64).*;
+
+    const floppy_a_type: []const u8 = switch ((floppyDrives >> 4) & 0xF) {
+        0b0000 => "none",
         0b0001 => "5 1/4 - 360 kB",
         0b0010 => "5 1/4 - 1.2 MB",
         0b0011 => "3 1/2 - 720 kB",
         0b0100 => "3 1/2 - 1.44 MB",
-        else => std.fmt.bufPrint(buf[0..], "unknown ({b:0>4})", (floppyDrives >> 4) & 0xF) catch unreachable,
-    });
-    TextTerminal.println("Floppy B: {}", switch ((floppyDrives >> 0) & 0xF) {
-        0b0000 => @as([]const u8, "none"),
+        else => std.fmt.bufPrint(buf[0..], "unknown ({b:0>4})", .{(floppyDrives >> 4) & 0xF}) catch unreachable,
+    };
+
+    const floppy_b_type: []const u8 = switch ((floppyDrives >> 0) & 0xF) {
+        0b0000 => "none",
         0b0001 => "5 1/4 - 360 kB",
         0b0010 => "5 1/4 - 1.2 MB",
         0b0011 => "3 1/2 - 720 kB",
         0b0100 => "3 1/2 - 1.44 MB",
-        else => std.fmt.bufPrint(buf[0..], "unknown ({b:0>4})", (floppyDrives >> 0) & 0xF) catch unreachable,
-    });
+        else => std.fmt.bufPrint(buf[0..], "unknown ({b:0>4})", .{(floppyDrives >> 0) & 0xF}) catch unreachable,
+    };
+
+    TextTerminal.println("Floppy A: {}", .{floppy_a_type});
+    TextTerminal.println("Floppy B: {}", .{floppy_b_type});
 }
 
 pub const FloppyType = enum(u4) {

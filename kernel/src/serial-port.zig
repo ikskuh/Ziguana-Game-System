@@ -67,7 +67,7 @@ pub fn init(base: u16, baud: usize, parity: Parity, bits: BitCount) void {
     io.out(u8, base + 1, baudSplits[1]);
 
     // Anzahl Bits, Parität, usw setzen (DLAB zurücksetzen)
-    io.out(u8, base + LCR, ((@enumToInt(parity) & 0x7) << 3) | ((@enumToInt(bits) - 5) & 0x3));
+    io.out(u8, base + LCR, (@as(u8, @enumToInt(parity) & 0x7) << 3) | ((@enumToInt(bits) - 5) & 0x3));
 
     // Initialisierung abschließen
     io.out(u8, base + FCR, 0xC7);

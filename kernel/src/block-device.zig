@@ -15,8 +15,11 @@ pub const BlockDevice = struct {
         hdd,
     };
 
-    /// The icon that will be displayed in the UI
+    /// The icon that will be displayed in the UI.
     icon: Icon,
+
+    /// The number of blocks available on this device.
+    blockCount: usize,
 
     /// Function to read a stream of blocks from the device.
     read: fn (device: *BlockDevice, startingBlock: usize, data: []u8) Error!void,

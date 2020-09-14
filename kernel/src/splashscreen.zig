@@ -49,11 +49,11 @@ fn loadBitmap(comptime bitmapData: []const u8) mkBitmapType(bitmapData) {
 
 const logoData = loadBitmap(@embedFile("splashscreen.bin"));
 
-pub extern fn run() noreturn {
+pub fn run() callconv(.C) noreturn {
     const oversampling = 4;
     var rng = std.rand.DefaultPrng.init(1);
 
-    VGA.loadPalette([_]VGA.RGB{
+    VGA.loadPalette(&[_]VGA.RGB{
         VGA.RGB.init(0x00, 0x00, 0x00), // 0
         VGA.RGB.init(0x33, 0x33, 0x33), // 1
         VGA.RGB.init(0x66, 0x66, 0x66), // 2
@@ -83,14 +83,14 @@ pub extern fn run() noreturn {
 
         {
             var y: usize = 0;
-            while (y < @typeOf(logoData).height) : (y += 1) {
+            while (y < @TypeOf(logoData).height) : (y += 1) {
                 var x: usize = 0;
-                while (x < @typeOf(logoData).width) : (x += 1) {
+                while (x < @TypeOf(logoData).width) : (x += 1) {
                     var bit = logoData.getPixel(x, y);
 
                     if (bit == 1) {
-                        const offset_x = (VGA.width - @typeOf(logoData).width) / 2;
-                        const offset_y = (VGA.height - @typeOf(logoData).height) / 2;
+                        const offset_x = (VGA.width - @TypeOf(logoData).width) / 2;
+                        const offset_y = (VGA.height - @TypeOf(logoData).height) / 2;
                         VGA.setPixel(offset_x + x, offset_y + y, 6);
                         VGA.setPixel(offset_x + x + 1, offset_y + y + 1, 3);
                     }

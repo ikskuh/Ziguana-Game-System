@@ -26,6 +26,10 @@ const VMM = @import("vmm.zig");
 
 const ATA = @import("ata.zig");
 
+const ZGSFS = @import("zgs-fs.zig");
+
+usingnamespace @import("block-device.zig");
+
 export var multibootHeader align(4) linksection(".multiboot") = Multiboot.Header.init();
 
 var usercodeValid: bool = false;
@@ -39,14 +43,14 @@ pub fn getRegisterAddress(register: u4) u32 {
 var enable_live_tracing = false;
 
 pub const assembler_api = struct {
-    pub extern fn flushpix() void {
+    pub fn flushpix() callconv(.C) void {
         switch (vgaApi) {
             .buffered => VGA.swapBuffers(),
             else => {},
         }
     }
 
-    pub extern fn trace(value: u32) void {
+    pub fn trace(value: u32) callconv(.C) void {
         switch (value) {
             0, 1 => {
                 enable_live_tracing = (value != 0);
@@ -54,12 +58,12 @@ pub const assembler_api = struct {
             2 => vgaApi = .immediate,
             3 => vgaApi = .buffered,
             else => {
-                Terminal.println("trace({})", value);
+                Terminal.println("trace({})", .{value});
             },
         }
     }
 
-    pub extern fn setpix(x: u32, y: u32, col: u32) void {
+    pub fn setpix(x: u32, y: u32, col: u32) callconv(.C) void {
         // Terminal.println("setpix({},{},{})", x, y, col);
         if (vgaApi == .immediate) {
             VGA.setPixelDirect(x, y, @truncate(u4, col));
@@ -67,19 +71,19 @@ pub const assembler_api = struct {
         VGA.setPixel(x, y, @truncate(u4, col));
     }
 
-    pub extern fn getpix(x: u32, y: u32) u32 {
+    pub fn getpix(x: u32, y: u32) callconv(.C) u32 {
         // Terminal.println("getpix({},{})", x, y);
         return VGA.getPixel(x, y);
     }
 
-    pub extern fn gettime() u32 {
+    pub fn gettime() callconv(.C) u32 {
         // systemTicks is in 0.1 sec steps, but we want ms
         const time = Timer.ticks;
         // Terminal.println("gettime() = {}", time);
         return time;
     }
 
-    pub extern fn getkey() u32 {
+    pub fn getkey() callconv(.C) u32 {
         const keycode = if (Keyboard.getKey()) |key|
             key.scancode | switch (key.set) {
                 .default => @as(u32, 0),
@@ -93,8 +97,8 @@ pub const assembler_api = struct {
         return keycode;
     }
 
-    pub fn exit() noreturn {
-        Terminal.println("User code finished!");
+    pub fn exit() callconv(.C) noreturn {
+        Terminal.println("User code finished!", .{});
         haltForever();
     }
 };
@@ -130,7 +134,7 @@ pub fn debugCall(cpu: *Interrupts.CpuState) void {
 const developSource = @embedFile("../../gasm/concept.asm");
 
 const Task = struct {
-    entryPoint: extern fn () noreturn = undefined,
+    entryPoint: fn () callconv(.C) noreturn = undefined,
 };
 
 pub const TaskId = enum {
@@ -142,41 +146,41 @@ pub const TaskId = enum {
     codeRunner,
 };
 
-extern fn editorNotImplementedYet() noreturn {
-    Terminal.println("This editor is not implemented yet!");
+fn editorNotImplementedYet() callconv(.C) noreturn {
+    Terminal.println("This editor is not implemented yet!", .{});
     while (true) {
         // wait for interrupt
         asm volatile ("hlt");
     }
 }
 
-extern fn executeUsercode() noreturn {
-    Terminal.println("Start assembling code...");
+fn executeUsercode() callconv(.C) noreturn {
+    Terminal.println("Start assembling code...", .{});
 
     var arena = std.heap.ArenaAllocator.init(Heap.allocator);
 
-    var buffer = std.Buffer.init(&arena.allocator, "") catch unreachable;
+    var buffer = std.ArrayList(u8).init(&arena.allocator);
 
-    CodeEditor.saveTo(&buffer) catch |err| {
+    CodeEditor.saveTo(buffer.writer()) catch |err| {
         arena.deinit();
-        Terminal.println("Failed to save user code: {}", err);
+        Terminal.println("Failed to save user code: {}", .{err});
         while (true) {
             // wait for interrupt
             asm volatile ("hlt");
         }
     };
 
-    if (Assembler.assemble(&arena.allocator, buffer.toSliceConst(), VMM.getUserSpace(), null)) {
+    if (Assembler.assemble(&arena.allocator, buffer.items, VMM.getUserSpace(), null)) {
         arena.deinit();
 
-        Terminal.println("Assembled code successfully!");
+        Terminal.println("Assembled code successfully!", .{});
         // Terminal.println("Memory required: {} bytes!", fba.end_index);
 
-        Terminal.println("Setup graphics...");
+        Terminal.println("Setup graphics...", .{});
 
         // Load dawnbringers 16 color palette
         // see: https://lospec.com/palette-list/dawnbringer-16
-        VGA.loadPalette(comptime [_]VGA.RGB{
+        VGA.loadPalette(&comptime [_]VGA.RGB{
             VGA.RGB.parse("#140c1c") catch unreachable, //  0 = black
             VGA.RGB.parse("#442434") catch unreachable, //  1 = dark purple-brown
             VGA.RGB.parse("#30346d") catch unreachable, //  2 = blue
@@ -195,14 +199,14 @@ extern fn executeUsercode() noreturn {
             VGA.RGB.parse("#deeed6") catch unreachable, // 15 = white
         });
 
-        Terminal.println("Start user code...");
+        Terminal.println("Start user code...", .{});
 
         asm volatile ("jmp 0x40000000");
         unreachable;
     } else |err| {
         arena.deinit();
         buffer.deinit();
-        Terminal.println("Failed to assemble user code: {}", err);
+        Terminal.println("Failed to assemble user code: {}", .{err});
         while (true) {
             // wait for interrupt
             asm volatile ("hlt");
@@ -210,7 +214,7 @@ extern fn executeUsercode() noreturn {
     }
 }
 
-extern fn executeTilemapEditor() noreturn {
+fn executeTilemapEditor() callconv(.C) noreturn {
     var time: usize = 0;
     var color: VGA.Color = 1;
     while (true) : (time += 1) {
@@ -238,7 +242,7 @@ extern fn executeTilemapEditor() noreturn {
 }
 
 const TaskList = EnumArray(TaskId, Task);
-const taskList = TaskList.initMap(([_]TaskList.KV{
+const taskList = TaskList.initMap(&([_]TaskList.KV{
     TaskList.KV{
         .key = .splash,
         .value = Task{
@@ -288,11 +292,11 @@ pub fn handleFKey(cpu: *Interrupts.CpuState, key: Keyboard.FKey) *Interrupts.Cpu
         .F5 => switchTask(.codeRunner),
         .F12 => blk: {
             if (Terminal.enable_serial) {
-                Terminal.println("Disable serial... Press F12 to enable serial again!");
+                Terminal.println("Disable serial... Press F12 to enable serial again!", .{});
                 Terminal.enable_serial = false;
             } else {
                 Terminal.enable_serial = true;
-                Terminal.println("Serial output enabled!");
+                Terminal.println("Serial output enabled!", .{});
             }
             break :blk cpu;
         },
@@ -343,19 +347,19 @@ pub fn main() anyerror!void {
 
     Terminal.clear();
 
-    Terminal.println("Kernel Range: {X:0>8} - {X:0>8}", @ptrToInt(&__start), @ptrToInt(&__end));
-    Terminal.println("Stack Size:   {}", @as(u32, stackSize));
+    Terminal.println("Kernel Range: {X:0>8} - {X:0>8}", .{ @ptrToInt(&__start), @ptrToInt(&__end) });
+    Terminal.println("Stack Size:   {}", .{@as(u32, stackSize)});
     // Terminal.println("User Stack:   {X:0>8}", @ptrToInt(&userStack));
-    Terminal.println("Kernel Stack: {X:0>8}", @ptrToInt(&kernelStack));
+    Terminal.println("Kernel Stack: {X:0>8}", .{@ptrToInt(&kernelStack)});
 
-    // const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
-    const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
+    const flags = @ptrCast(*Multiboot.Structure.Flags, &multiboot.flags).*;
+    //const flags = @bitCast(Multiboot.Structure.Flags, multiboot.flags);
 
-    Terminal.print("Multiboot Structure: {*}\r\n", multiboot);
+    Terminal.print("Multiboot Structure: {*}\r\n", .{multiboot});
     inline for (@typeInfo(Multiboot.Structure).Struct.fields) |fld| {
         if (comptime !std.mem.eql(u8, comptime fld.name, "flags")) {
             if (@field(flags, fld.name)) {
-                Terminal.print("\t{}\t= {}\r\n", fld.name, @field(multiboot, fld.name));
+                Terminal.print("\t{}\t= {}\r\n", .{ fld.name, @field(multiboot, fld.name) });
             }
         }
     }
@@ -369,7 +373,7 @@ pub fn main() anyerror!void {
             if (entry.baseAddress + entry.length > 0xFFFFFFFF)
                 continue; // out of range
 
-            Terminal.println("mmap = {}", entry);
+            Terminal.println("mmap = {}", .{entry});
 
             var start = std.mem.alignForward(@intCast(usize, entry.baseAddress), 4096); // only allocate full pages
             var length = entry.length - (start - entry.baseAddress); // remove padded bytes
@@ -382,7 +386,7 @@ pub fn main() anyerror!void {
         }
     }
 
-    Terminal.println("total memory: {} pages, {Bi}", PMM.getFreePageCount(), PMM.getFreeMemory());
+    Terminal.println("total memory: {} pages, {Bi}", .{ PMM.getFreePageCount(), PMM.getFreeMemory() });
 
     // mark "ourself" used
     {
@@ -402,9 +406,9 @@ pub fn main() anyerror!void {
     }
 
     {
-        Terminal.print("[ ] Initialize gdt...\r");
+        Terminal.print("[ ] Initialize gdt...\r", .{});
         GDT.init();
-        Terminal.println("[X");
+        Terminal.println("[X", .{});
     }
 
     var pageDirectory = try VMM.init();
@@ -426,105 +430,103 @@ pub fn main() anyerror!void {
         }
     }
 
-    Terminal.print("[ ] Map user space memory...\r");
+    Terminal.print("[ ] Map user space memory...\r", .{});
     try VMM.createUserspace(pageDirectory);
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.print("[ ] Map heap memory...\r");
+    Terminal.print("[ ] Map heap memory...\r", .{});
     try VMM.createHeap(pageDirectory);
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.println("free memory: {} pages, {Bi}", PMM.getFreePageCount(), PMM.getFreeMemory());
+    Terminal.println("free memory: {} pages, {Bi}", .{ PMM.getFreePageCount(), PMM.getFreeMemory() });
 
-    Terminal.print("[ ] Enable paging...\r");
+    Terminal.print("[ ] Enable paging...\r", .{});
     VMM.enablePaging();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.print("[ ] Initialize heap memory...\r");
+    Terminal.print("[ ] Initialize heap memory...\r", .{});
     Heap.init();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
     {
-        Terminal.print("[ ] Initialize idt...\r");
+        Terminal.print("[ ] Initialize idt...\r", .{});
         Interrupts.init();
-        Terminal.println("[X");
+        Terminal.println("[X", .{});
 
-        Terminal.print("[ ] Enable IRQs...\r");
+        Terminal.print("[ ] Enable IRQs...\r", .{});
         Interrupts.disableAllIRQs();
         Interrupts.enableExternalInterrupts();
-        Terminal.println("[X");
+        Terminal.println("[X", .{});
     }
 
-    Terminal.print("[ ] Enable Keyboard...\r");
+    Terminal.print("[ ] Enable Keyboard...\r", .{});
     Keyboard.init();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.print("[ ] Enable Timer...\r");
+    Terminal.print("[ ] Enable Timer...\r", .{});
     Timer.init();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.print("[ ] Initialize CMOS...\r");
+    Terminal.print("[ ] Initialize CMOS...\r", .{});
     CMOS.init();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
     CMOS.printInfo();
 
-    Terminal.print("[ ] Initialize FDC...\r");
-    const floppyDrives = try FDC.init();
-    Terminal.println("[X");
-    for (floppyDrives) |dev| {
-        Terminal.println("FDD: {}", dev);
+    var drives = std.ArrayList(*BlockDevice).init(Heap.allocator);
+
+    Terminal.print("[ ] Initialize FDC...\r", .{});
+    for (try FDC.init()) |drive| {
+        try drives.append(drive);
     }
+    Terminal.println("[X", .{});
 
-    // {
-    //     Terminal.println("    read sector 0...");
-    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-    //     try FDC.read(.A, 0, sector0[0..]);
-    //     for (sector0) |b, i| {
-    //         Terminal.print("{X:0>2} ", b);
-
-    //         if ((i % 16) == 15) {
-    //             Terminal.println("");
-    //         }
-    //     }
-    //     Terminal.println("    write sector 0...");
-    //     for (sector0) |*b, i| {
-    //         b.* = @truncate(u8, i);
-    //     }
-    //     try FDC.write(.A, 0, sector0[0..]);
-    // }
-
-    Terminal.print("[ ] Initialize ATA...\r");
-    const ataDrives = try ATA.init();
-    Terminal.println("[X");
-
-    for (ataDrives) |dev| {
-        Terminal.println("ATA: {}", dev);
+    Terminal.print("[ ] Initialize ATA...\r", .{});
+    for (try ATA.init()) |drive| {
+        try drives.append(drive);
     }
+    Terminal.println("[X", .{});
 
-    // {
-    //     Terminal.println("    read sector 0...");
-    //     var sector0: [512]u8 = [_]u8{0xFF} ** 512;
-    //     try ATA.read(0, 0, sector0[0..]);
-    //     for (sector0) |b, i| {
-    //         Terminal.print("{X:0>2} ", b);
+    Terminal.print("[ ] Scan drives...", .{});
+    {
+        // const MBR = @import("mbr.zig");
+        var i: usize = 0;
+        for (drives.items) |drive| {
+            // if(drive.blockSize != 512)
+            //     continue; // currently unsupported
+            var buf: [512]u8 = undefined;
+            try drive.read(drive, 0, buf[0..]);
 
-    //         if ((i % 16) == 15) {
-    //             Terminal.println("");
-    //         }
-    //     }
-    //     Terminal.println("    write sector 0...");
-    //     for (sector0) |*b, i| {
-    //         b.* = @truncate(u8, i);
-    //     }
-    //     try ATA.write(0, 0, sector0[0..]);
-    // }
+            // Check if the first block marks a "ZGS Partition"
+            const fsHeader = @ptrCast(*const ZGSFS.FSHeader, &buf);
+            if (fsHeader.isValid()) {
+                // yay! \o/
+                Terminal.println("found ZGSFS: {}", .{drive});
+                continue;
+            }
 
-    Terminal.print("[ ] Initialize PCI...\r");
-    PCI.init();
-    Terminal.println("[X");
+            // Check if the first block contains a partition table
+            // const mbrHeader = @ptrCast(*const MBR.BootSector, &buf);
+            // if(mbrHeader.isValid())
+            // {
+            //     // yay! \o/
+            //     Terminal.println("found MBR header: {}", drive);
 
-    Terminal.print("Initialize text editor...\r\n");
+            //     continue;
+            // }
+
+            // Block device is useless to us :(
+        }
+    }
+    // Terminal.println("[X");
+
+    drives.deinit();
+
+    // Terminal.print("[ ] Initialize PCI...\r", .{});
+    // PCI.init();
+    // Terminal.println("[X", .{});
+
+    Terminal.print("Initialize text editor...\r\n", .{});
     CodeEditor.init();
 
     try CodeEditor.load(developSource[0..]);
@@ -538,14 +540,14 @@ pub fn main() anyerror!void {
     //     }
     // }
 
-    Terminal.print("[ ] Initialize VGA...\r");
+    Terminal.print("[ ] Initialize VGA...\r", .{});
     // prevent the terminal to write data into the video memory
     Terminal.enable_video = false;
     VGA.init();
-    Terminal.println("[X");
+    Terminal.println("[X", .{});
 
-    Terminal.println("[x] Disable serial debugging for better performance...");
-    Terminal.println("    Press F12 to re-enable serial debugging!");
+    Terminal.println("[x] Disable serial debugging for better performance...", .{});
+    Terminal.println("    Press F12 to re-enable serial debugging!", .{});
     // Terminal.enable_serial = false;
 
     asm volatile ("int $0x45");
@@ -560,18 +562,18 @@ fn kmain() noreturn {
     main() catch |err| {
         Terminal.enable_serial = true;
         Terminal.setColors(.white, .red);
-        Terminal.println("\r\n\r\nmain() returned {}!", err);
+        Terminal.println("\r\n\r\nmain() returned {}!", .{err});
         if (@errorReturnTrace()) |trace| {
             for (trace.instruction_addresses) |addr, i| {
                 if (i >= trace.index)
                     break;
-                Terminal.println("Stack: {x: >8}", addr);
+                Terminal.println("Stack: {x: >8}", .{addr});
             }
         }
     };
 
     Terminal.enable_serial = true;
-    Terminal.println("system haltet, shut down now!");
+    Terminal.println("system haltet, shut down now!", .{});
     while (true) {
         Interrupts.disableExternalInterrupts();
         asm volatile ("hlt");
@@ -583,7 +585,7 @@ var kernelStack: [4096]u8 align(16) = undefined;
 var multiboot: *Multiboot.Structure = undefined;
 var multibootMagic: u32 = undefined;
 
-export nakedcc fn _start() noreturn {
+export fn _start() callconv(.Naked) noreturn {
     // DO NOT INSERT CODE BEFORE HERE
     // WE MUST NOT MODIFY THE REGISTER CONTENTS
     // BEFORE SAVING THEM TO MEMORY
@@ -595,7 +597,13 @@ export nakedcc fn _start() noreturn {
     );
     // FROM HERE ON WE ARE SAVE
 
-    @newStackCall(kernelStack[0..], kmain);
+    const eos = @ptrToInt(&kernelStack) + @sizeOf(u8) * kernelStack.len;
+    asm volatile (""
+        :
+        : [stack] "{esp}" (eos)
+    );
+
+    kmain();
 }
 
 pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
@@ -603,7 +611,7 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     Terminal.enable_serial = true;
     Interrupts.disableExternalInterrupts();
     Terminal.setColors(.white, .red);
-    Terminal.println("\r\n\r\nKERNEL PANIC: {}\r\n", msg);
+    Terminal.println("\r\n\r\nKERNEL PANIC: {}\r\n", .{msg});
 
     // Terminal.println("Registers:");
     // for (registers) |reg, i| {
@@ -616,9 +624,9 @@ pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn
     //     Terminal.println("unable to get debug info: {}\n", @errorName(err));
     //     break :blk null;
     // };
-    var it = std.debug.StackIterator.init(first_trace_addr);
+    var it = std.debug.StackIterator.init(first_trace_addr, null);
     while (it.next()) |return_address| {
-        Terminal.println("Stack: {x}", return_address);
+        Terminal.println("Stack: {x}", .{return_address});
         // if (dwarf_info) |di| {
         //     std.debug.printSourceAtAddressDwarf(
         //         di,

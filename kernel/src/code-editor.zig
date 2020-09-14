@@ -53,7 +53,7 @@ pub fn init() void {
 
 /// Saves all text lines to the given slice.
 /// Returns the portion of the slice actually written.
-pub fn saveTo(buffer: *std.Buffer) !void {
+pub fn saveTo(stream: anytype) !void {
     var start = firstLine;
     while (start) |s| {
         if (s.previous != null) {
@@ -64,8 +64,8 @@ pub fn saveTo(buffer: *std.Buffer) !void {
     }
 
     while (start) |node| : (start = node.next) {
-        try buffer.append(node.text[0..node.length]);
-        try buffer.append("\n");
+        try stream.writeAll(node.text[0..node.length]);
+        try stream.writeAll("\n");
     }
 }
 
@@ -73,7 +73,7 @@ pub fn load(source: []const u8) !void {
     // lines.reset();
     firstLine = null;
 
-    var it = std.mem.separate(source, "\n");
+    var it = std.mem.split(source, "\n");
     var previousLine: ?*TextLine = null;
     while (it.next()) |line| {
         var tl = try lines.create(TextLine);
@@ -186,7 +186,7 @@ fn paint() void {
                 .register => colorScheme.register,
                 .label => colorScheme.label,
                 .directive => colorScheme.directive,
-                else => colorScheme.text,
+                // else => colorScheme.text,
             });
 
             col += 1;
@@ -208,7 +208,7 @@ fn paint() void {
     VGA.swapBuffers();
 }
 
-pub extern fn run() noreturn {
+pub fn run() callconv(.C) noreturn {
 
     // .background = 0,
     // .text = 1,
@@ -219,7 +219,7 @@ pub extern fn run() noreturn {
     // .label = 6,
     // .directive = 7,
     // .cursor = 8,
-    VGA.loadPalette(comptime [_]VGA.RGB{
+    VGA.loadPalette(&comptime [_]VGA.RGB{
         VGA.RGB.parse("#000000") catch unreachable, //  0
         VGA.RGB.parse("#CCCCCC") catch unreachable, //  1
         VGA.RGB.parse("#346524") catch unreachable, //  2

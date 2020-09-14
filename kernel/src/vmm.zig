@@ -58,7 +58,7 @@ pub fn enablePaging() void {
 pub const PageDirectory = extern struct {
     entries: [1024]Entry,
 
-    fn mapPage(directory: *PageDirectory, virtualAddress: usize, physicalAddress: usize, access: WriteProtection) error{
+    pub fn mapPage(directory: *PageDirectory, virtualAddress: usize, physicalAddress: usize, access: WriteProtection) error{
         AlreadyMapped,
         OutOfMemory,
     }!void {

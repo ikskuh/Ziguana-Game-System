@@ -141,17 +141,20 @@ pub fn write(text: []const u8) void {
     }
 }
 
-fn putFormat(x: void, data: []const u8) error{NeverHappens}!void {
-    write(data);
+fn writerImpl(_: void, text: []const u8) error{}!usize {
+    write(text);
+    return text.len;
 }
 
-pub fn print(comptime fmt: []const u8, params: ...) void {
-    std.fmt.format(void{}, error{NeverHappens}, putFormat, fmt, params) catch |err| switch (err) {
-        error.NeverHappens => unreachable,
+pub fn print(comptime fmt: []const u8, params: anytype) void {
+    var writer = std.io.Writer(void, error{}, writerImpl){
+        .context = {},
     };
+
+    std.fmt.format(writer, fmt, params) catch unreachable;
 }
 
-pub fn println(comptime fmt: []const u8, params: ...) void {
+pub fn println(comptime fmt: []const u8, params: anytype) void {
     print(fmt, params);
     write("\r\n");
 }

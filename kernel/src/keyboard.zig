@@ -54,7 +54,7 @@ const ScancodeInfo = packed struct {
     graphCase: u8,
 };
 
-const scancodeTableDefault = @bitCast([128]ScancodeInfo, @embedFile("stdkbd_default.bin"));
+const scancodeTableDefault = @bitCast([128]ScancodeInfo, @as([512]u8, @embedFile("stdkbd_default.bin").*));
 
 var isShiftPressed = false;
 var isAltPressed = false;

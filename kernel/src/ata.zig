@@ -22,7 +22,6 @@ const Device = struct {
 
     device: BlockDevice,
     blockSize: usize,
-    sectorCount: usize,
     isMaster: bool,
     baseport: u16,
     ports: Ports,
@@ -139,7 +138,7 @@ const Device = struct {
             w.* = IO.in(u16, ports.data);
         }
 
-        device.sectorCount = ((@as(u32, ataData[61]) << 16) | ataData[60]);
+        device.device.blockCount = ((@as(u32, ataData[61]) << 16) | ataData[60]);
 
         return true;
     }
@@ -202,6 +201,7 @@ pub fn init() error{}![]*BlockDevice {
                 .icon = .hdd,
                 .read = read,
                 .write = write,
+                .blockCount = undefined,
             },
             .blockSize = 512,
             .baseport = cfg.port,
@@ -218,7 +218,6 @@ pub fn init() error{}![]*BlockDevice {
                 .cmd = devs[i].baseport + 7,
                 .control = devs[i].baseport + 518,
             },
-            .sectorCount = undefined,
             .present = false,
         };
 
@@ -249,7 +248,7 @@ fn readBlocks(device: Device, lba: u24, buffer: []u8) BlockDevice.Error!void {
 
     const blockCount = @intCast(u8, buffer.len / device.blockSize);
 
-    if (lba + blockCount > device.sectorCount)
+    if (lba + blockCount > device.device.blockCount)
         return error.AddressNotOnDevice;
 
     device.setupParameters(lba, blockCount);
@@ -271,7 +270,7 @@ fn readBlocks(device: Device, lba: u24, buffer: []u8) BlockDevice.Error!void {
             asm volatile ("nop");
         }
 
-        @memcpy(buffer.ptr + device.blockSize * block, @ptrCast([*]const u8, &words), device.blockSize);
+        std.mem.copy(u8, buffer[device.blockSize * block ..], std.mem.sliceAsBytes(&words)[0..device.blockSize]);
     }
 }
 
@@ -291,7 +290,7 @@ fn writeBlocks(device: Device, lba: u24, buffer: []const u8) BlockDevice.Error!v
 
     const blockCount = @intCast(u8, buffer.len / device.blockSize);
 
-    if (lba + blockCount > device.sectorCount)
+    if (lba + blockCount > device.device.blockCount)
         return error.AddressNotOnDevice;
 
     device.setupParameters(lba, blockCount);
@@ -303,7 +302,7 @@ fn writeBlocks(device: Device, lba: u24, buffer: []const u8) BlockDevice.Error!v
 
         var words: [256]u16 = undefined;
 
-        @memcpy(@ptrCast([*]u8, &words), buffer.ptr + device.blockSize * block, device.blockSize);
+        std.mem.copy(u8, std.mem.sliceAsBytes(&words), buffer[device.blockSize * block ..][0..device.blockSize]);
 
         for (words) |w| {
             IO.out(u16, ports.data, w);

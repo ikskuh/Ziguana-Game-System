@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const warn = if (@import("builtin").os == .freestanding)
+const warn = if (std.builtin.os.tag == .freestanding)
     @import("text-terminal.zig").print
 else
     std.debug.warn;
@@ -86,6 +86,8 @@ const Parser = struct {
     lineNumber: u32 = 0,
 
     constants: std.StringHashMap(Token),
+
+    state: State = .default,
 
     fn init(allocator: *std.mem.Allocator, source: []const u8) Parser {
         return Parser{
@@ -250,7 +252,7 @@ const Parser = struct {
 
                     comptime var i = 0;
                     inline while (i < 16) : (i += 1) {
-                        comptime var registerName: [3]u8 = "r??";
+                        comptime var registerName: [3]u8 = "r??".*;
                         comptime var len = std.fmt.formatIntBuf(registerName[1..], @as(usize, i), 10, false, std.fmt.FormatOptions{});
                         // @compileLog(i, registerName[0 .. 1 + len]);
                         if (std.mem.eql(u8, text, registerName[0 .. 1 + len])) {
@@ -263,7 +265,7 @@ const Parser = struct {
 
                     if (this.constants.get(text)) |kv| {
                         // return stored token from .def
-                        return kv.value;
+                        return kv;
                     }
 
                     return Token{
@@ -324,8 +326,6 @@ const Parser = struct {
         return error.UnexpectedToken;
     }
 
-    state: State = .default,
-
     fn convertTokenToNumber(token: Token) !u32 {
         return switch (token.type) {
             .hexnum => try std.fmt.parseInt(u32, token.value[2..], 16),
@@ -353,7 +353,19 @@ const Parser = struct {
         return try convertTokenToNumber(try this.readAnyExpectedToken(([_]TokenType{ .decnum, .hexnum })[0..]));
     }
 
-    fn readNext(this: *Parser) !?Element {
+    const TokenizeError = error{
+        UnexpectedEndOfText,
+        InvalidHexLiteral,
+        UnexpectedCharacter,
+        UnexpectedToken,
+        OutOfMemory,
+        Overflow,
+        InvalidCharacter,
+        UnknownDirective,
+        TooManyOperands,
+        NotImplementedYet,
+    };
+    fn readNext(this: *Parser) TokenizeError!?Element {
         // loop until we return
         while (true) {
             var token = (try this.readToken()) orelse return null;
@@ -391,9 +403,9 @@ const Parser = struct {
                                 this.state = .readsD32;
                             } else if (std.mem.eql(u8, token.value, ".align")) {
                                 const al = try this.readNumberToken();
-                                return Element{
+                                return @as(?Element, Element{
                                     .alignment = al,
-                                };
+                                });
                             } else {
                                 return error.UnknownDirective;
                             }
@@ -579,7 +591,7 @@ const Labels = struct {
     global: std.StringHashMap(u32),
 
     fn get(this: Labels, name: []const u8) LabelRef {
-        var ref = if (name[0] == '.') this.local.get(name) else this.global.get(name);
+        var ref = if (name[0] == '.') this.local.getEntry(name) else this.global.getEntry(name);
         if (ref) |lbl| {
             return LabelRef{
                 .label = lbl.key,
@@ -619,7 +631,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
 
     var i: usize = 0;
 
-    warn("start parsing...\r\n");
+    warn("start parsing...\r\n", .{});
 
     while (try parser.readNext()) |label_or_instruction| {
         i += 1;
@@ -636,7 +648,7 @@ pub fn assemble(allocator: *std.mem.Allocator, source: []const u8, target: []u8,
                     try writer.applyPatches(labels, .onlyLocals);
 
                     // erase all local labels as soon as we encounter a global label
-                    labels.local.clear();
+                    labels.local.clearAndFree();
                     _ = try labels.global.put(lbl, absoffset + writer.offset);
                 }
             },
@@ -786,7 +798,7 @@ const ImmediateOrLabel = union(enum) {
         };
     }
 
-    pub fn format(value: ImmediateOrLabel, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+    pub fn format(value: ImmediateOrLabel, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: anytype, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
         switch (value) {
             .immediate => |imm| try std.fmt.format(context, Errors, output, "0x{X:0>8}", imm),
             .label => |ref| {
@@ -850,8 +862,7 @@ const Writer = struct {
     fn applyPatchesTo(this: *Writer, labels: Labels, patchlist: *std.ArrayList(Patch)) !void {
 
         // on deinit, we will flush our patchlist and apply all patches:
-        var iter = patchlist.iterator();
-        while (iter.next()) |patch| {
+        for (patchlist.items) |patch| {
             const lbl = labels.get(patch.label);
             // std.debug.warn("Patching {} to {}\n", patch, lbl);
             if (lbl.offset) |local_offset| {
@@ -885,21 +896,21 @@ const Writer = struct {
 
         const off = this.offset;
         this.offset += count;
-        return off;
+        return @as(usize, off);
     }
 
     /// writes a value.
     /// if the value is a LabelRef and the ref is not valid yet, it will
     /// be added to the patchlist.
-    fn write(this: *Writer, value: var) WriterError!void {
+    fn write(this: *Writer, value: anytype) WriterError!void {
         try this.writeWithOffset(value, 0);
     }
 
     /// writes a value with a certain offset added to it.
     /// if the value is a LabelRef and the ref is not valid yet, it will
     /// be added to the patchlist.
-    fn writeWithOffset(this: *Writer, value: var, offset: i32) WriterError!void {
-        const T = @typeOf(value);
+    fn writeWithOffset(this: *Writer, value: anytype, offset: i32) WriterError!void {
+        const T = @TypeOf(value);
         switch (T) {
             u8, u16, u32, u64, i8, i16, i32, i64 => {
                 var val = value + @intCast(T, offset);
@@ -931,7 +942,7 @@ const Writer = struct {
                 .immediate => |v| try this.writeWithOffset(v, offset),
                 .label => |v| try this.writeWithOffset(v, offset),
             },
-            else => @compileError(@typeName(@typeOf(value)) ++ " is not supported by writer!"),
+            else => @compileError(@typeName(@TypeOf(value)) ++ " is not supported by writer!"),
         }
     }
 };
@@ -949,7 +960,7 @@ const InstrOutput = union(enum) {
     indirection: Indirection,
     doubleIndirection: Indirection,
 
-    pub fn format(value: InstrOutput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+    pub fn format(value: InstrOutput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: anytype, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
         switch (value) {
             .indirection => |ind| if (ind.offset == 0)
                 try std.fmt.format(context, Errors, output, "*[{}]", ind.address)
@@ -1027,7 +1038,7 @@ const InstrInput = union(enum) {
     indirection: Indirection,
     doubleIndirection: Indirection,
 
-    pub fn format(value: InstrInput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
+    pub fn format(value: InstrInput, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: anytype, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
         switch (value) {
             .immediate => |imm| try std.fmt.format(context, Errors, output, "{}", imm),
             .indirection => |ind| if (ind.offset == 0)

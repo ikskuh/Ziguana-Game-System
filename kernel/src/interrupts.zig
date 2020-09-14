@@ -18,7 +18,7 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
         0x00...0x1F => {
             // Exception
             Terminal.setColors(.white, .magenta);
-            Terminal.println("Unhandled exception: {}\r\n", switch (cpu.interrupt) {
+            Terminal.println("Unhandled exception: {}\r\n", .{@as([]const u8, switch (cpu.interrupt) {
                 0x00 => "Divide By Zero",
                 0x01 => "Debug",
                 0x02 => "Non Maskable Interrupt",
@@ -43,8 +43,8 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
                 0x1E => "Security-sensitive event in Host",
                 0x1F => "Reserved",
                 else => "Unknown",
-            });
-            Terminal.println("{}", cpu);
+            })});
+            Terminal.println("{}", .{cpu});
 
             if (cpu.interrupt == 0x0E) {
                 const cr2 = asm volatile ("mov %%cr2, %[cr]"
@@ -53,17 +53,16 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
                 const cr3 = asm volatile ("mov %%cr3, %[cr]"
                     : [cr] "=r" (-> usize)
                 );
-                Terminal.println(
-                    "Page Fault when {1} address 0x{0X} from {3}: {2}",
+                Terminal.println("Page Fault when {1} address 0x{0X} from {3}: {2}", .{
                     cr2,
-                    if ((cpu.errorcode & 2) != 0) "writing" else "reading",
-                    if ((cpu.errorcode & 1) != 0) "access denied" else "page unmapped",
-                    if ((cpu.errorcode & 4) != 0) "userspace" else "kernelspace",
-                );
+                    if ((cpu.errorcode & 2) != 0) @as([]const u8, "writing") else @as([]const u8, "reading"),
+                    if ((cpu.errorcode & 1) != 0) @as([]const u8, "access denied") else @as([]const u8, "page unmapped"),
+                    if ((cpu.errorcode & 4) != 0) @as([]const u8, "userspace") else @as([]const u8, "kernelspace"),
+                });
             }
 
             if (@import("root").currentAssemblerLine) |line| {
-                Terminal.println("Assembler Line: {}", line);
+                Terminal.println("Assembler Line: {}", .{line});
             }
 
             Terminal.resetColors();
@@ -80,7 +79,7 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
             if (irqHandlers[cpu.interrupt - 0x20]) |handler| {
                 cpu = handler(cpu);
             } else {
-                Terminal.println("Unhandled IRQ{}:\r\n{}", cpu.interrupt - 0x20, cpu);
+                Terminal.println("Unhandled IRQ{}:\r\n{}", .{ cpu.interrupt - 0x20, cpu });
             }
 
             if (cpu.interrupt >= 0x28) {
@@ -99,7 +98,7 @@ export fn handle_interrupt(_cpu: *CpuState) *CpuState {
         0x44 => return Root.switchTask(.codeRunner),
         0x45 => return Root.switchTask(.splash),
         else => {
-            Terminal.println("Unhandled interrupt:\r\n{}", cpu);
+            Terminal.println("Unhandled interrupt:\r\n{}", .{cpu});
             while (true) {
                 asm volatile (
                     \\ cli
@@ -204,11 +203,11 @@ pub const CpuState = packed struct {
     esp: u32,
     ss: u32,
 
-    pub fn format(cpu: CpuState, comptime fmt: []const u8, options: std.fmt.FormatOptions, context: var, comptime Errors: type, output: fn (@typeOf(context), []const u8) Errors!void) Errors!void {
-        try std.fmt.format(context, Errors, output, "  EAX={X:0>8} EBX={X:0>8} ECX={X:0>8} EDX={X:0>8}\r\n", cpu.eax, cpu.ebx, cpu.ecx, cpu.edx);
-        try std.fmt.format(context, Errors, output, "  ESI={X:0>8} EDI={X:0>8} EBP={X:0>8} EIP={X:0>8}\r\n", cpu.esi, cpu.edi, cpu.ebp, cpu.eip);
-        try std.fmt.format(context, Errors, output, "  INT={X:0>2}       ERR={X:0>8}  CS={X:0>8} FLG={X:0>8}\r\n", cpu.interrupt, cpu.errorcode, cpu.cs, cpu.eflags);
-        try std.fmt.format(context, Errors, output, "  ESP={X:0>8}  SS={X:0>8}\r\n", cpu.esp, cpu.ss);
+    pub fn format(cpu: CpuState, comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+        try writer.print("  EAX={X:0>8} EBX={X:0>8} ECX={X:0>8} EDX={X:0>8}\r\n", .{ cpu.eax, cpu.ebx, cpu.ecx, cpu.edx });
+        try writer.print("  ESI={X:0>8} EDI={X:0>8} EBP={X:0>8} EIP={X:0>8}\r\n", .{ cpu.esi, cpu.edi, cpu.ebp, cpu.eip });
+        try writer.print("  INT={X:0>2}       ERR={X:0>8}  CS={X:0>8} FLG={X:0>8}\r\n", .{ cpu.interrupt, cpu.errorcode, cpu.cs, cpu.eflags });
+        try writer.print("  ESP={X:0>8}  SS={X:0>8}\r\n", .{ cpu.esp, cpu.ss });
     }
 };
 
@@ -236,7 +235,7 @@ const Descriptor = packed struct {
     enabled: bool, // 47 P Gibt an, ob dieser Eintrag benutzt wird.
     offset1: u16, // 48-63 Offset 16-31
 
-    pub fn init(offset: ?nakedcc fn () void, selector: u16, _type: InterruptType, bits: InterruptBits, privilege: u2, enabled: bool) Descriptor {
+    pub fn init(offset: ?fn () callconv(.Naked) void, selector: u16, _type: InterruptType, bits: InterruptBits, privilege: u2, enabled: bool) Descriptor {
         const offset_val = @ptrToInt(offset);
         return Descriptor{
             .offset0 = @truncate(u16, offset_val & 0xFFFF),
@@ -261,10 +260,10 @@ const InterruptTable = packed struct {
 
 export const idtp = InterruptTable{
     .table = &idt,
-    .limit = @sizeOf(@typeOf(idt)) - 1,
+    .limit = @sizeOf(@TypeOf(idt)) - 1,
 };
 
-export nakedcc fn common_isr_handler() void {
+export fn common_isr_handler() callconv(.Naked) void {
     asm volatile (
         \\ push %%ebp
         \\ push %%edi
@@ -296,9 +295,9 @@ export nakedcc fn common_isr_handler() void {
     );
 }
 
-fn getInterruptStub(comptime i: u32) nakedcc fn () void {
+fn getInterruptStub(comptime i: u32) fn () callconv(.Naked) void {
     const Wrapper = struct {
-        nakedcc fn stub_with_zero() void {
+        fn stub_with_zero() callconv(.Naked) void {
             asm volatile (
                 \\ pushl $0
                 \\ pushl %[nr]
@@ -307,7 +306,7 @@ fn getInterruptStub(comptime i: u32) nakedcc fn () void {
                 : [nr] "n" (i)
             );
         }
-        nakedcc fn stub_with_errorcode() void {
+        fn stub_with_errorcode() callconv(.Naked) void {
             asm volatile (
                 \\ pushl %[nr]
                 \\ jmp common_isr_handler

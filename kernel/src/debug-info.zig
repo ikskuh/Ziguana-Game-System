@@ -3,7 +3,7 @@ const Terminal = @import("text-terminal.zig");
 
 const SerialOutStream = struct {
     const This = @This();
-    fn print(_: This, comptime fmt: []const u8, args: ...) error{Never}!void {
+    fn print(_: This, comptime fmt: []const u8, args: anytype) error{Never}!void {
         Terminal.print(fmt, args);
     }
 
@@ -18,7 +18,7 @@ const SerialOutStream = struct {
 
 const serial_out_stream = SerialOutStream{};
 
-fn printLineFromFile(out_stream: var, line_info: std.debug.LineInfo) anyerror!void {
+fn printLineFromFile(out_stream: anytype, line_info: std.debug.LineInfo) anyerror!void {
     Terminal.println("TODO print line from the file\n");
 }
 
@@ -62,7 +62,7 @@ fn getSelfDebugInfo() !*std.debug.DwarfInfo {
 
         fn readFn(self: *std.io.InStream(anyerror), buffer: []u8) anyerror!usize {
             const ptr = @intToPtr([*]const u8, in_stream_pos);
-            @memcpy(buffer.ptr, ptr, buffer.len);
+            std.mem.copy(u8, buffer, ptr[0..buffer.len]);
             in_stream_pos += buffer.len;
             return buffer.len;
         }

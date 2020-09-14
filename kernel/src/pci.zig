@@ -39,7 +39,7 @@ pub fn init() void {
                     else => {},
                 }
 
-                Terminal.print("{:0>2}:{:0>2}.{:0>2}: {X:0>4}:{X:0>4}", bus, device, function, vendorId, deviceId);
+                Terminal.print("{:0>2}:{:0>2}.{:0>2}: {X:0>4}:{X:0>4}", .{ bus, device, function, vendorId, deviceId });
 
                 const HeaderInfo = packed struct {
                     command: u16,
@@ -61,16 +61,16 @@ pub fn init() void {
 
                 const header = @bitCast(HeaderInfo, infopack);
 
-                Terminal.print("  [{X:0>6}]", header.classcode);
+                Terminal.print("  [{X:0>6}]", .{header.classcode});
 
                 const cc = ClassCodeDescription.lookUp(header.classcode);
                 if (cc.class != null) {
-                    Terminal.print("  {}", cc.programmingInterface orelse cc.subclass orelse cc.class);
+                    Terminal.print("  {}", .{cc.programmingInterface orelse cc.subclass orelse cc.class});
                 }
-                Terminal.println("");
+                Terminal.println("", .{});
                 const desc = DeviceDescription.lookUp(vendorId, deviceId);
                 if (desc.vendor != null) {
-                    Terminal.println("  {}", desc.device orelse desc.vendor);
+                    Terminal.println("  {}", .{desc.device orelse desc.vendor});
                 }
                 if (!header.isMultifunction)
                     break;
@@ -101,11 +101,11 @@ const DeviceDescription = struct {
             .device = null,
         };
 
-        var vendorIdStrBuf = "    ";
-        const vendorIdStr = std.fmt.bufPrint(vendorIdStrBuf[0..], "{x:0>4}", vendorId) catch unreachable;
+        var vendorIdStrBuf = "    ".*;
+        const vendorIdStr = std.fmt.bufPrint(vendorIdStrBuf[0..], "{x:0>4}", .{vendorId}) catch unreachable;
 
-        var deviceIdStrBuf = "    ";
-        const deviceIdStr = std.fmt.bufPrint(deviceIdStrBuf[0..], "{x:0>4}", deviceId) catch unreachable;
+        var deviceIdStrBuf = "    ".*;
+        const deviceIdStr = std.fmt.bufPrint(deviceIdStrBuf[0..], "{x:0>4}", .{deviceId}) catch unreachable;
 
         while (iterator.next()) |line| {
             if (desc.vendor != null) {
@@ -143,8 +143,8 @@ const ClassCodeDescription = struct {
             .programmingInterface = null,
         };
 
-        var classCodeStrBuf = "      ";
-        const classCodeStr = std.fmt.bufPrint(classCodeStrBuf[0..], "{x:0>6}", classcode) catch unreachable;
+        var classCodeStrBuf = "      ".*;
+        const classCodeStr = std.fmt.bufPrint(classCodeStrBuf[0..], "{x:0>6}", .{classcode}) catch unreachable;
 
         while (iterator.next()) |line| {
             if (desc.subclass != null) {

@@ -20,8 +20,8 @@ comptime {
 }
 
 var allocatorObject = std.mem.Allocator{
-    .reallocFn = realloc,
-    .shrinkFn = shrink,
+    .allocFn = heapAlloc,
+    .resizeFn = heapResize,
 };
 
 pub const allocator = &allocatorObject;
@@ -103,72 +103,25 @@ fn printAllocationList() void {
     // }
 }
 
-fn realloc(
-    self: *std.mem.Allocator,
-    /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    /// If `old_mem.len == 0` then this is a new allocation and `new_byte_count`
-    /// is guaranteed to be >= 1.
-    old_mem: []u8,
-    /// If `old_mem.len == 0` then this is `undefined`, otherwise:
-    /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    /// Guaranteed to be >= 1.
-    /// Guaranteed to be a power of 2.
-    old_alignment: u29,
-    /// If `new_byte_count` is 0 then this is a free and it is guaranteed that
-    /// `old_mem.len != 0`.
-    new_byte_count: usize,
-    /// Guaranteed to be >= 1.
-    /// Guaranteed to be a power of 2.
-    /// Returned slice's pointer must have this alignment.
-    new_alignment: u29,
-) std.mem.Allocator.Error![]u8 {
-    if (old_mem.len == 0) {
-        // Terminal.println("malloc({})", new_byte_count);
-        if (new_alignment > granularity)
-            @panic("invalid alignment!");
-        var mem = malloc(new_byte_count);
-        printAllocationList();
-        return mem;
-    } else if (new_byte_count == 0) {
-        // Terminal.println("free({}", old_mem.ptr);
-        free(old_mem);
-        printAllocationList();
-        return &[0]u8{};
-    } else {
-        // Terminal.println("realloc({}, {})", old_mem.ptr, new_byte_count);
-        std.debug.assert(old_mem.len <= new_byte_count);
-        var new = try malloc(new_byte_count);
-        std.mem.copy(u8, new, old_mem);
-        free(old_mem);
-        printAllocationList();
-        return new;
-    }
+fn heapAlloc(self: *std.mem.Allocator, len: usize, ptr_align: u29, len_align: u29, ret_addr: usize) std.mem.Allocator.Error![]u8 {
+    std.debug.assert(ptr_align <= @alignOf(c_longdouble));
+    return try malloc(len);
 }
 
-fn shrink(
+fn heapResize(
     self: *std.mem.Allocator,
-    /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    old_mem: []u8,
-    /// Guaranteed to be the same as what was returned from most recent call to
-    /// `reallocFn` or `shrinkFn`.
-    old_alignment: u29,
-    /// Guaranteed to be less than or equal to `old_mem.len`.
-    new_byte_count: usize,
-    /// If `new_byte_count == 0` then this is `undefined`, otherwise:
-    /// Guaranteed to be less than or equal to `old_alignment`.
-    new_alignment: u29,
-) []u8 {
-    if (new_byte_count == 0) {
-        // Terminal.println("free'({}", old_mem.ptr);
-        free(old_mem);
-        printAllocationList();
-        return &[0]u8{};
-    } else {
-        printAllocationList();
-        // Terminal.println("shrink(old_mem={}, old_alignment={}, new_byte_count={}, new_alignment={})\n", old_mem.len, old_alignment, new_byte_count, new_alignment);
-        @panic("not implemented yet");
+    buf: []u8,
+    old_align: u29,
+    new_len: usize,
+    len_align: u29,
+    ret_addr: usize,
+) std.mem.Allocator.Error!usize {
+    if (new_len == 0) {
+        free(buf);
+        return 0;
     }
+    if (new_len <= buf.len) {
+        return std.mem.alignAllocLen(buf.len, new_len, len_align);
+    }
+    return error.OutOfMemory;
 }

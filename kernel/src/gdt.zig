@@ -107,7 +107,7 @@ const DescriptorTable = packed struct {
 
 export const gdtp = DescriptorTable{
     .table = &gdt,
-    .limit = @sizeOf(@typeOf(gdt)) - 1,
+    .limit = @sizeOf(@TypeOf(gdt)) - 1,
 };
 
 const Terminal = @import("text-terminal.zig");

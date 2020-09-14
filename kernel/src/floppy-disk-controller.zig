@@ -84,6 +84,7 @@ pub fn init() ![]*BlockDevice {
                 .icon = .floppy,
                 .read = read,
                 .write = write,
+                .blockCount = 2880, // this is fixed
             },
             .available = switch (i) {
                 0 => if (drives.A) |d| d == .microHD else false,

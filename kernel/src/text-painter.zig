@@ -10,7 +10,7 @@ const Glyph = packed struct {
     }
 };
 
-const stdfont = @bitCast([128]Glyph, @embedFile("stdfont.bin"));
+const stdfont = @bitCast([128]Glyph, @as([1024]u8, @embedFile("stdfont.bin").*));
 
 pub fn drawChar(x: isize, y: isize, char: u8, color: VGA.Color) void {
     if (x <= -6 or y <= -6 or x >= VGA.width or y >= VGA.height)

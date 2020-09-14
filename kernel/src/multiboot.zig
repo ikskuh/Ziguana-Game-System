@@ -149,7 +149,7 @@ pub const Structure = packed struct {
             }
         };
 
-        fn iterator(this: MemoryMap) Iterator {
+        pub fn iterator(this: MemoryMap) Iterator {
             return Iterator{
                 .end_pos = this.mmap_addr + this.mmap_length,
                 .current_pos = this.mmap_addr,
@@ -183,8 +183,8 @@ pub const Structure = packed struct {
     };
 
     comptime {
-        std.debug.assert(std.meta.fieldInfo(@This(), "mem").offset.? == 4);
-        std.debug.assert(std.meta.fieldInfo(@This(), "vbe").offset.? == 72);
-        std.debug.assert(std.meta.fieldInfo(@This(), "framebuffer").offset.? == 88);
+        std.debug.assert(@byteOffsetOf(@This(), "mem") == 4);
+        std.debug.assert(@byteOffsetOf(@This(), "vbe") == 72);
+        std.debug.assert(@byteOffsetOf(@This(), "framebuffer") == 88);
     }
 };
