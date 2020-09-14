@@ -1,0 +1,3 @@
+[submodule "lib/lola"]
+	path = libs/lola
+	url = https://github.com/MasterQ32/LoLa

@@ -1,5 +1,6 @@
 const std = @import("std");
-const builtin = @import("builtin");
+
+const lola = @import("lola");
 
 const Terminal = @import("text-terminal.zig");
 const Multiboot = @import("multiboot.zig");
@@ -154,64 +155,114 @@ fn editorNotImplementedYet() callconv(.C) noreturn {
     }
 }
 
+const ObjectPool = lola.runtime.ObjectPool(.{});
+
+fn compileAndRunLolaSource() !void {
+    var arena = std.heap.ArenaAllocator.init(Heap.allocator);
+    defer arena.deinit();
+
+    var buffer = std.ArrayList(u8).init(&arena.allocator);
+    defer buffer.deinit();
+
+    try CodeEditor.saveTo(buffer.writer());
+
+    const allocator = &arena.allocator;
+
+    var diagnostics = lola.compiler.Diagnostics.init(allocator);
+    defer diagnostics.deinit();
+
+    var compile_unit = (try lola.compiler.compile(allocator, &diagnostics, "code", buffer.items)) orelse {
+        for (diagnostics.messages.items) |msg| {
+            Terminal.println("{}", .{msg});
+        }
+        return;
+    };
+    defer compile_unit.deinit();
+
+    var pool = ObjectPool.init(allocator);
+    defer pool.deinit();
+
+    var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
+    defer env.deinit();
+
+    // try lola.libs.std.install(&env, allocator);
+
+    var vm = try lola.runtime.VM.init(allocator, &env);
+    defer vm.deinit();
+
+    while (true) {
+        var result = vm.execute(100_000) catch |err| {
+            Terminal.println("LoLa panic: {}", .{@errorName(err)});
+            return;
+        };
+
+        pool.clearUsageCounters();
+        try pool.walkEnvironment(env);
+        try pool.walkVM(vm);
+        pool.collectGarbage();
+
+        switch (result) {
+            .completed => break,
+            .exhausted => continue,
+            .paused => continue,
+        }
+    }
+}
+
 fn executeUsercode() callconv(.C) noreturn {
     Terminal.println("Start assembling code...", .{});
 
-    var arena = std.heap.ArenaAllocator.init(Heap.allocator);
-
-    var buffer = std.ArrayList(u8).init(&arena.allocator);
-
-    CodeEditor.saveTo(buffer.writer()) catch |err| {
-        arena.deinit();
+    compileAndRunLolaSource() catch |err| {
         Terminal.println("Failed to save user code: {}", .{err});
-        while (true) {
-            // wait for interrupt
-            asm volatile ("hlt");
-        }
     };
 
-    if (Assembler.assemble(&arena.allocator, buffer.items, VMM.getUserSpace(), null)) {
-        arena.deinit();
-
-        Terminal.println("Assembled code successfully!", .{});
-        // Terminal.println("Memory required: {} bytes!", fba.end_index);
-
-        Terminal.println("Setup graphics...", .{});
-
-        // Load dawnbringers 16 color palette
-        // see: https://lospec.com/palette-list/dawnbringer-16
-        VGA.loadPalette(&comptime [_]VGA.RGB{
-            VGA.RGB.parse("#140c1c") catch unreachable, //  0 = black
-            VGA.RGB.parse("#442434") catch unreachable, //  1 = dark purple-brown
-            VGA.RGB.parse("#30346d") catch unreachable, //  2 = blue
-            VGA.RGB.parse("#4e4a4e") catch unreachable, //  3 = gray
-            VGA.RGB.parse("#854c30") catch unreachable, //  4 = brown
-            VGA.RGB.parse("#346524") catch unreachable, //  5 = green
-            VGA.RGB.parse("#d04648") catch unreachable, //  6 = salmon
-            VGA.RGB.parse("#757161") catch unreachable, //  7 = khaki
-            VGA.RGB.parse("#597dce") catch unreachable, //  8 = baby blue
-            VGA.RGB.parse("#d27d2c") catch unreachable, //  9 = orange
-            VGA.RGB.parse("#8595a1") catch unreachable, // 10 = light gray
-            VGA.RGB.parse("#6daa2c") catch unreachable, // 11 = grass green
-            VGA.RGB.parse("#d2aa99") catch unreachable, // 12 = skin
-            VGA.RGB.parse("#6dc2ca") catch unreachable, // 13 = bright blue
-            VGA.RGB.parse("#dad45e") catch unreachable, // 14 = yellow
-            VGA.RGB.parse("#deeed6") catch unreachable, // 15 = white
-        });
-
-        Terminal.println("Start user code...", .{});
-
-        asm volatile ("jmp 0x40000000");
-        unreachable;
-    } else |err| {
-        arena.deinit();
-        buffer.deinit();
-        Terminal.println("Failed to assemble user code: {}", .{err});
-        while (true) {
-            // wait for interrupt
-            asm volatile ("hlt");
-        }
+    while (true) {
+        // wait for interrupt
+        asm volatile ("hlt");
     }
+
+    // if (Assembler.assemble(&arena.allocator, buffer.items, VMM.getUserSpace(), null)) {
+    //     arena.deinit();
+
+    //     Terminal.println("Assembled code successfully!", .{});
+    //     // Terminal.println("Memory required: {} bytes!", fba.end_index);
+
+    //     Terminal.println("Setup graphics...", .{});
+
+    //     // Load dawnbringers 16 color palette
+    //     // see: https://lospec.com/palette-list/dawnbringer-16
+    //     VGA.loadPalette(&comptime [_]VGA.RGB{
+    //         VGA.RGB.parse("#140c1c") catch unreachable, //  0 = black
+    //         VGA.RGB.parse("#442434") catch unreachable, //  1 = dark purple-brown
+    //         VGA.RGB.parse("#30346d") catch unreachable, //  2 = blue
+    //         VGA.RGB.parse("#4e4a4e") catch unreachable, //  3 = gray
+    //         VGA.RGB.parse("#854c30") catch unreachable, //  4 = brown
+    //         VGA.RGB.parse("#346524") catch unreachable, //  5 = green
+    //         VGA.RGB.parse("#d04648") catch unreachable, //  6 = salmon
+    //         VGA.RGB.parse("#757161") catch unreachable, //  7 = khaki
+    //         VGA.RGB.parse("#597dce") catch unreachable, //  8 = baby blue
+    //         VGA.RGB.parse("#d27d2c") catch unreachable, //  9 = orange
+    //         VGA.RGB.parse("#8595a1") catch unreachable, // 10 = light gray
+    //         VGA.RGB.parse("#6daa2c") catch unreachable, // 11 = grass green
+    //         VGA.RGB.parse("#d2aa99") catch unreachable, // 12 = skin
+    //         VGA.RGB.parse("#6dc2ca") catch unreachable, // 13 = bright blue
+    //         VGA.RGB.parse("#dad45e") catch unreachable, // 14 = yellow
+    //         VGA.RGB.parse("#deeed6") catch unreachable, // 15 = white
+    //     });
+
+    //     Terminal.println("Start user code...", .{});
+
+    //     asm volatile ("jmp 0x40000000");
+    //     unreachable;
+    // } else |err| {
+    //     arena.deinit();
+    //     buffer.deinit();
+    //     Terminal.println("Failed to assemble user code: {}", .{err});
+    //     while (true) {
+    //         // wait for interrupt
+    //         asm volatile ("hlt");
+    //     }
+    // }
 }
 
 fn executeTilemapEditor() callconv(.C) noreturn {
@@ -611,7 +662,7 @@ export fn _start() callconv(.Naked) noreturn {
     kmain();
 }
 
-pub fn panic(msg: []const u8, error_return_trace: ?*builtin.StackTrace) noreturn {
+pub fn panic(msg: []const u8, error_return_trace: ?*std.builtin.StackTrace) noreturn {
     @setCold(true);
     Terminal.enable_serial = true;
     Interrupts.disableExternalInterrupts();

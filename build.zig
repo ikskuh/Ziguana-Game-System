@@ -2,6 +2,8 @@ const std = @import("std");
 const builtin = @import("builtin");
 const Builder = @import("std").build.Builder;
 
+const lola_cfg = @import("./libs/lola/build.zig");
+
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
     const kernel = b.addExecutable("kernel", "kernel/src/main.zig");
@@ -24,7 +26,10 @@ pub fn build(b: *Builder) void {
         .os_tag = .freestanding,
         .abi = .eabi,
     });
+    kernel.addPackage(lola_cfg.createPackage("libs/lola"));
     kernel.install();
+
+    kernel.single_threaded = true;
 
     const verbose_debug = b.option(bool, "verbose-qemu", "Enable verbose debug output for QEMU") orelse false;
     const qemu_debug_mode: []const u8 = if (verbose_debug)
