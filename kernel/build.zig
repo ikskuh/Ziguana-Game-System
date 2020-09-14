@@ -50,6 +50,10 @@ pub fn build(b: *Builder) void {
         "64M", // 64 MB RAM
         "-d",
         qemu_debug_mode, // debug output will yield all interrupts and resets
+        "-drive",
+        "format=raw,if=ide,file=boot.img",
+        "-drive",
+        "format=raw,if=floppy,file=cartridge.img", // attach floppy cartridge
     });
 
     { // don't use the system image, boot the kernel directly

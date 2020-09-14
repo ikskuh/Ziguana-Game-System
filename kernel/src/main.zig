@@ -485,9 +485,9 @@ pub fn main() anyerror!void {
     }
     Terminal.println("[X", .{});
 
-    Terminal.print("[ ] Scan drives...", .{});
+    Terminal.print("[ ] Scan drives...\n", .{});
     {
-        // const MBR = @import("mbr.zig");
+        const MBR = @import("mbr.zig");
         var i: usize = 0;
         for (drives.items) |drive| {
             // if(drive.blockSize != 512)
@@ -504,14 +504,21 @@ pub fn main() anyerror!void {
             }
 
             // Check if the first block contains a partition table
-            // const mbrHeader = @ptrCast(*const MBR.BootSector, &buf);
-            // if(mbrHeader.isValid())
-            // {
-            //     // yay! \o/
-            //     Terminal.println("found MBR header: {}", drive);
+            const mbrHeader = @ptrCast(*const MBR.BootSector, &buf);
+            if (mbrHeader.isValid()) {
+                // yay! \o/
+                Terminal.println("found MBR header: {}", .{drive});
 
-            //     continue;
-            // }
+                var index: usize = 0;
+                while (index < 4) : (index += 1) {
+                    const part = mbrHeader.getPartition(@truncate(u2, index));
+                    if (part.id != 0) {
+                        Terminal.println("Partition[{}] = {}", .{ index, part });
+                    }
+                }
+
+                continue;
+            }
 
             // Block device is useless to us :(
         }
