@@ -46,12 +46,12 @@ pub fn createHeap(directory: *PageDirectory) !void {
 
 pub fn enablePaging() void {
     var cr0 = asm volatile ("mov %%cr0, %[cr]"
-        : [cr] "=r" (-> u32)
+        : [cr] "={eax}" (-> u32)
     );
     cr0 |= (1 << 31);
     asm volatile ("mov %[cr], %%cr0"
         :
-        : [cr] "r" (cr0)
+        : [cr] "{eax}" (cr0)
     );
 }
 

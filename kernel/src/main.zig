@@ -337,8 +337,6 @@ pub fn switchTask(task: TaskId) *Interrupts.CpuState {
 extern const __start: u8;
 extern const __end: u8;
 
-const stackSize = @sizeOf(@Frame(kmain));
-
 pub fn main() anyerror!void {
     // HACK: this fixes some weird behaviour with "code running into userStack"
     _ = userStack;
@@ -348,7 +346,7 @@ pub fn main() anyerror!void {
     Terminal.clear();
 
     Terminal.println("Kernel Range: {X:0>8} - {X:0>8}", .{ @ptrToInt(&__start), @ptrToInt(&__end) });
-    Terminal.println("Stack Size:   {}", .{@as(u32, stackSize)});
+    Terminal.println("Stack Size:   {}", .{@as(u32, @sizeOf(@TypeOf(kernelStack)))});
     // Terminal.println("User Stack:   {X:0>8}", @ptrToInt(&userStack));
     Terminal.println("Kernel Stack: {X:0>8}", .{@ptrToInt(&kernelStack)});
 
