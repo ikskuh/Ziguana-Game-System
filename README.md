@@ -123,3 +123,13 @@ Note: `*x` means that `x` may be modified.
 
 ![](https://mq32.de/public/4367caedb0616bf483852f55b315db3d361bb6aa.png)
 
+## Building
+
+Install the latest [zig](https://ziglang.org/) master build (at least 0.6.0+d07383689) and run
+```sh
+# This compile the project
+zig build
+
+# This will run qemu with the system (you need qemu installed ^^)
+zig build run
+```

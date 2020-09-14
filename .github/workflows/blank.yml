@@ -1,18 +1,36 @@
-name: CI
-
-on: [push]
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+  schedule:
+    - cron: '0 5 * * *' # run at 5 AM UTC
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v2
+      with:
+        submodules: 'recursive'
+
+    - name: Setup Zig
+      uses: goto-bus-stop/setup-zig@v1.2.3
+      with:
+        version: master
+    
     - uses: mstksg/get-package@v1
       with:
-        apt-get: mono-mcs mtools syslinux syslinux-common jq curl
-    - name: Install zig/master
-      run: bash ./aux/install-zig.sh
+        apt-get: mono-mcs mtools syslinux syslinux-common
+    
+    - name: Build kernel
+      working-directory: ./kernel
+      run: |
+        zig build
+
     - name: Build boot.img
-      run: PATH=$PATH:`pwd`/zig-current make -C kernel boot.img SYSLINUX_ROOT=/usr/lib/syslinux/modules
+      run: make -C kernel boot.img SYSLINUX_ROOT=/usr/lib/syslinux/modules
+
     - name: Build floppy.img
-      run: PATH=$PATH:`pwd`/zig-current make -C kernel floppy.img SYSLINUX_ROOT=/usr/lib/syslinux/modules
+      run: make -C kernel floppy.img SYSLINUX_ROOT=/usr/lib/syslinux/modules
