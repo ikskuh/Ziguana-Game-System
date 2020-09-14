@@ -131,7 +131,7 @@ pub fn debugCall(cpu: *Interrupts.CpuState) void {
     cpu.eip += 4;
 }
 
-const developSource = @embedFile("../../gasm/concept.asm");
+// const developSource = @embedFile("../../gasm/concept.asm");
 
 const Task = struct {
     entryPoint: fn () callconv(.C) noreturn = undefined,
@@ -534,7 +534,7 @@ pub fn main() anyerror!void {
     Terminal.print("Initialize text editor...\r\n", .{});
     CodeEditor.init();
 
-    try CodeEditor.load(developSource[0..]);
+    try CodeEditor.load("// Get ready to code!");
 
     // Terminal.print("Press 'space' to start system...\r\n");
     // while (true) {

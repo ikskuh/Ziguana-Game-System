@@ -4,9 +4,9 @@ const Builder = @import("std").build.Builder;
 
 pub fn build(b: *Builder) void {
     const mode = b.standardReleaseOptions();
-    const kernel = b.addExecutable("kernel", "src/main.zig");
+    const kernel = b.addExecutable("kernel", "kernel/src/main.zig");
     kernel.setBuildMode(mode);
-    kernel.setLinkerScriptPath("src/linker.ld");
+    kernel.setLinkerScriptPath("kernel/src/linker.ld");
     kernel.setTarget(std.zig.CrossTarget{
         .cpu_arch = .i386,
         .cpu_model = .{
@@ -50,10 +50,10 @@ pub fn build(b: *Builder) void {
         "64M", // 64 MB RAM
         "-d",
         qemu_debug_mode, // debug output will yield all interrupts and resets
-        "-drive",
-        "format=raw,if=ide,file=boot.img",
-        "-drive",
-        "format=raw,if=floppy,file=cartridge.img", // attach floppy cartridge
+        // "-drive",
+        // "format=raw,if=ide,file=kernel/boot.img",
+        // "-drive",
+        // "format=raw,if=floppy,file=kernel/cartridge.img", // attach floppy cartridge
     });
 
     { // don't use the system image, boot the kernel directly
