@@ -168,45 +168,91 @@ fn compileAndRunLolaSource() !void {
 
     const allocator = &arena.allocator;
 
-    var diagnostics = lola.compiler.Diagnostics.init(allocator);
-    defer diagnostics.deinit();
+    const Location = struct {
+        /// the name of the file/chunk this location is relative to
+        chunk: []const u8,
 
-    var compile_unit = (try lola.compiler.compile(allocator, &diagnostics, "code", buffer.items)) orelse {
-        for (diagnostics.messages.items) |msg| {
-            Terminal.println("{}", .{msg});
+        /// source line, starting at 1
+        line: u32,
+
+        /// source column, starting at 1
+        column: u32,
+
+        /// Offset to the start of the location
+        offset_start: usize,
+
+        /// Offset to the end of the location
+        offset_end: usize,
+
+        pub fn getLength(self: @This()) usize {
+            return self.offset_end - self.offset_start;
         }
-        return;
+
+        pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("{}:{}:{}", .{ self.chunk, self.line, self.column });
+        }
+
+        pub fn merge(a: Location, b: Location) Location {
+            // Should emitted from the same chunk
+            std.debug.assert(a.chunk.ptr == b.chunk.ptr);
+
+            const min = if (a.offset_start < b.offset_start)
+                a
+            else
+                b;
+
+            return Location{
+                .chunk = a.chunk,
+                .line = min.line,
+                .column = min.column,
+                .offset_start = std.math.min(a.offset_start, b.offset_start),
+                .offset_end = std.math.max(a.offset_end, b.offset_end),
+            };
+        }
     };
-    defer compile_unit.deinit();
 
-    var pool = ObjectPool.init(allocator);
-    defer pool.deinit();
+    // var x_arena: std.heap.ArenaAllocator = undefined;
+    var x_messages: std.ArrayList(lola.compiler.Location) = undefined;
 
-    var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
-    defer env.deinit();
+    // var diagnostics: lola.compiler.Diagnostics = undefined; // .init(allocator);
+    // defer diagnostics.deinit();
 
-    // try lola.libs.std.install(&env, allocator);
+    // var compile_unit = (try lola.compiler.compile(allocator, &diagnostics, "code", buffer.items)) orelse {
+    //     for (diagnostics.messages.items) |msg| {
+    //         Terminal.println("{}", .{msg});
+    //     }
+    //     return;
+    // };
+    // defer compile_unit.deinit();
 
-    var vm = try lola.runtime.VM.init(allocator, &env);
-    defer vm.deinit();
+    // var pool = ObjectPool.init(allocator);
+    // defer pool.deinit();
 
-    while (true) {
-        var result = vm.execute(100_000) catch |err| {
-            Terminal.println("LoLa panic: {}", .{@errorName(err)});
-            return;
-        };
+    // var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
+    // defer env.deinit();
 
-        pool.clearUsageCounters();
-        try pool.walkEnvironment(env);
-        try pool.walkVM(vm);
-        pool.collectGarbage();
+    // // try lola.libs.std.install(&env, allocator);
 
-        switch (result) {
-            .completed => break,
-            .exhausted => continue,
-            .paused => continue,
-        }
-    }
+    // var vm = try lola.runtime.VM.init(allocator, &env);
+    // defer vm.deinit();
+
+    // while (true) {
+    //     var result = vm.execute(100_000) catch |err| {
+    //         Terminal.println("LoLa panic: {}", .{@errorName(err)});
+    //         return;
+    //     };
+
+    //     pool.clearUsageCounters();
+    //     try pool.walkEnvironment(env);
+    //     try pool.walkVM(vm);
+    //     pool.collectGarbage();
+
+    //     switch (result) {
+    //         .completed => break,
+    //         .exhausted => continue,
+    //         .paused => continue,
+    //     }
+    // }
 }
 
 fn executeUsercode() callconv(.C) noreturn {
