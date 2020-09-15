@@ -43,6 +43,10 @@ pub fn getRegisterAddress(register: u4) u32 {
 
 var enable_live_tracing = false;
 
+pub fn milliTimestamp() u64 {
+    return Timer.ticks;
+}
+
 pub const assembler_api = struct {
     pub fn flushpix() callconv(.C) void {
         switch (vgaApi) {
@@ -168,91 +172,58 @@ fn compileAndRunLolaSource() !void {
 
     const allocator = &arena.allocator;
 
-    const Location = struct {
-        /// the name of the file/chunk this location is relative to
-        chunk: []const u8,
+    var diagnostics = lola.compiler.Diagnostics.init(allocator);
+    defer diagnostics.deinit();
 
-        /// source line, starting at 1
-        line: u32,
-
-        /// source column, starting at 1
-        column: u32,
-
-        /// Offset to the start of the location
-        offset_start: usize,
-
-        /// Offset to the end of the location
-        offset_end: usize,
-
-        pub fn getLength(self: @This()) usize {
-            return self.offset_end - self.offset_start;
+    var compile_unit = (try lola.compiler.compile(allocator, &diagnostics, "code", buffer.items)) orelse {
+        for (diagnostics.messages.items) |msg| {
+            Terminal.println("{}", .{msg});
         }
-
-        pub fn format(self: @This(), comptime fmt: []const u8, options: std.fmt.FormatOptions, writer: anytype) !void {
-            try writer.print("{}:{}:{}", .{ self.chunk, self.line, self.column });
-        }
-
-        pub fn merge(a: Location, b: Location) Location {
-            // Should emitted from the same chunk
-            std.debug.assert(a.chunk.ptr == b.chunk.ptr);
-
-            const min = if (a.offset_start < b.offset_start)
-                a
-            else
-                b;
-
-            return Location{
-                .chunk = a.chunk,
-                .line = min.line,
-                .column = min.column,
-                .offset_start = std.math.min(a.offset_start, b.offset_start),
-                .offset_end = std.math.max(a.offset_end, b.offset_end),
-            };
-        }
+        return;
     };
+    defer compile_unit.deinit();
 
-    // var x_arena: std.heap.ArenaAllocator = undefined;
-    var x_messages: std.ArrayList(lola.compiler.Location) = undefined;
+    var pool = ObjectPool.init(allocator);
+    defer pool.deinit();
 
-    // var diagnostics: lola.compiler.Diagnostics = undefined; // .init(allocator);
-    // defer diagnostics.deinit();
+    var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
+    defer env.deinit();
 
-    // var compile_unit = (try lola.compiler.compile(allocator, &diagnostics, "code", buffer.items)) orelse {
-    //     for (diagnostics.messages.items) |msg| {
-    //         Terminal.println("{}", .{msg});
-    //     }
-    //     return;
-    // };
-    // defer compile_unit.deinit();
+    try lola.libs.std.install(&env, allocator);
 
-    // var pool = ObjectPool.init(allocator);
-    // defer pool.deinit();
+    try env.installFunction("Print", lola.runtime.Function.initSimpleUser(struct {
+        fn invoke(environment: *const lola.runtime.Environment, context: lola.runtime.Context, args: []const lola.runtime.Value) anyerror!lola.runtime.Value {
+            for (args) |value, i| {
+                switch (value) {
+                    .string => |str| Terminal.write(str.contents),
+                    else => Terminal.print("{}", .{value}),
+                }
+            }
+            Terminal.println("", .{});
+            return .void;
+        }
+    }.invoke));
 
-    // var env = try lola.runtime.Environment.init(allocator, &compile_unit, pool.interface());
-    // defer env.deinit();
+    var vm = try lola.runtime.VM.init(allocator, &env);
+    defer vm.deinit();
 
-    // // try lola.libs.std.install(&env, allocator);
+    while (true) {
+        var result = vm.execute(100_000) catch |err| {
+            Terminal.println("LoLa panic: {}", .{@errorName(err)});
+            return;
+        };
 
-    // var vm = try lola.runtime.VM.init(allocator, &env);
-    // defer vm.deinit();
+        pool.clearUsageCounters();
+        try pool.walkEnvironment(env);
+        try pool.walkVM(vm);
+        pool.collectGarbage();
 
-    // while (true) {
-    //     var result = vm.execute(100_000) catch |err| {
-    //         Terminal.println("LoLa panic: {}", .{@errorName(err)});
-    //         return;
-    //     };
-
-    //     pool.clearUsageCounters();
-    //     try pool.walkEnvironment(env);
-    //     try pool.walkVM(vm);
-    //     pool.collectGarbage();
-
-    //     switch (result) {
-    //         .completed => break,
-    //         .exhausted => continue,
-    //         .paused => continue,
-    //     }
-    // }
+        switch (result) {
+            .completed => break,
+            .exhausted => continue,
+            .paused => continue,
+        }
+    }
 }
 
 fn executeUsercode() callconv(.C) noreturn {
