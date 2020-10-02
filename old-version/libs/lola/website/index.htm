@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <title>LoLa Programming Language</title>
+  <link rel="stylesheet" href="style.css">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+
+<body>
+  <nav id="index">
+    <h1><a href="#index">The LoLa Programming Language</a></h1>
+    <ul>
+      <li><a href="playground.htm"><b>Try it online!</b></a></li>
+      <li><a href="#documentation">Documentation</a></li>
+      <li><a href="#releases">Releases</a></li>
+      <li><a href="#community">Community</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ul>
+  </nav>
+  <div class="teaser">
+    <div class="text">
+      <p>LoLa is an embeddable programming language for game scripting, <br>Its primary design focus is an
+        easy-to-understand feature set and an implementation that allows perfect control of the script execution.
+      </p>
+      <p>The language runtime and compiler are cross-platform and is <a href="#releases">available for MacOS, Windows
+          and Linux.</a> The compiler and runtime itself are platform independent and will work on any platform.</p>
+    </div>
+    <img class="logo" alt="Language Logo" src="img/logo.png" />
+  </div>
+  <div class="features">
+    <div class="group">
+      <div class="preview">
+        <pre><code><span class="kw">var</span> list = [ <span class="string">"Hello"</span>, <span class="string">"World"</span> ];
+<span class="kw">for</span>(text <span class="kw">in</span> list) {
+  Print(text);
+}</code></pre>
+      </div>
+      <div class="text">
+        <h3>Easy-to-learn syntax</h3>
+        The syntax of the LoLa language is similar to languages like JavaScript and it's familiar to most programmers.
+        <br>Non-programmers can easily learn the block-oriented syntax with less than 20 keywords and only 20 operators.
+      </div>
+    </div>
+    <hr />
+    <div class="group">
+      <div class="text">
+        <h3>Protection against bad code</h3>
+        The LoLa runtime protects the host application from misbehaving user code by slicing code execution in
+        controllable chunks. 
+        <br>
+        Even endless loops will eventually return to the host! Out-of-memory problems will be catched by the use of
+        host-controlled allocators.
+      </div>
+      <div class="preview">
+        <pre><code><span class="kw">var</span> i = 0;
+<span class="kw">while</span>(<span class="kw">true</span>) {
+  i += 1;
+}</code></pre>
+      </div>
+    </div>
+    <hr />
+    <div class="group">
+      <div class="preview">
+        <pre><code><span class="kw">while</span>(<span class="kw">true</span>) {
+  <span class="kw">var</span> input = WaitForKey();
+  <span class="kw">if</span>(input == <span class="string">" "</span>) {
+    Print(<span class="string">"Space was pressed!"</span>);
+  }
+}</code></pre>
+      </div>
+      <div class="text">
+        <h3>Asynchronous execution</h3>
+        LoLa code is designed to suspend at any time and return control back to the host. In this example,
+        <code>WaitForKey</code> will immediately return control to the host, eating no CPU time until the host decides
+        that the script should continue. 
+        <br> Most other scripting languages don't allow that behaviour, enforcing multithreading or
+        other workarounds.
+      </div>
+    </div>
+    <hr />
+    <div class="group">
+      <div class="text">
+        <h3>Fully serializable state</h3>
+        The LoLa runtime is designed to be saved to disk at any point not executing any code. This means that you can
+        let your script execute for 1000 instructions, save the runtime state to disk and resume execution a week later on
+        another computer, not having any problems with script resumption. This is especially useful for games which
+        often want to embed the state of their scripts into the save files.
+      </div>
+      <div class="preview">
+        <pre><code><span class="kw">05 04 00 00 00 01 00 00</span> |........|
+<span class="kw">00 00 00 00 f0 3f 01 00</span> |.....?..|
+<span class="kw">00 00 00 00 00 00 40 04</span> |......@.|
+<span class="kw">05 00 00 00 48 65 6c 6c</span> |....Hell|
+<span class="kw">6f 01 1f 85 eb 51 b8 1e</span> |o....Q..|
+<span class="kw">09 40                 </span>  |.@|</code></pre>
+      </div>
+    </div>
+  </div>
+  <div class="content">
+    <a class="anchor" id="documentation"></a>
+    <h2>Documentation</h2>
+
+    <p>
+      The following documents are available:
+    </p>
+    <ul>
+      <li><a href="docs/language.htm">Language Documentation</a></li>
+      <li><a href="docs/standard-library.htm">Standard Library Documentation</a></li>
+      <li><a href="docs/runtime-library.htm">Runtime Library Documentation</a></li>
+      <li><a href="docs/index.html#root">Library Code Documentation</a></li>
+      <li><a href="docs/intermediate-language.htm">Intermediate Language Description</a></li>
+      <li><a href="docs/module-binary.htm">LoLa Binary Module Format (<code>.lm</code>)</a></li>
+    </ul>
+    <p>
+      You can also check out these LoLa example source files on GitHub:
+    </p>
+    <ul>
+      <li><a href="https://github.com/MasterQ32/LoLa/blob/master/examples/lola/reverse-array.lola">Reversing an
+          array</a></li>
+      <li><a href="https://github.com/MasterQ32/LoLa/blob/master/examples/lola/fib-iterative.lola">Fibonacci
+          Sequence</a></li>
+      <li><a href="https://github.com/MasterQ32/LoLa/blob/master/examples/lola/bubble-sort.lola">BubbleSort</a></li>
+      <li><a href="https://github.com/MasterQ32/LoLa/blob/master/examples/lola/game-code.lola">Ingame script</a></li>
+      <li><a href="https://github.com/MasterQ32/LoLa/blob/master/examples/lola/forth.lola">Forth-like
+          toy interpreter</a></li>
+    </ul>
+
+    <a class="anchor" id="releases"></a>
+    <h2>Releases</h2>
+
+    <p>
+      <img alt="CI status (linux)" src="https://github.com/MasterQ32/LoLa/workflows/Linux%20Build/badge.svg" />
+      <img alt="CI status (macos)" src="https://github.com/MasterQ32/LoLa/workflows/MacOS%20Build/badge.svg" />
+      <img alt="CI status (windows)" src="https://github.com/MasterQ32/LoLa/workflows/Windows%20Build/badge.svg" />
+    </p>
+    <p>
+      LoLa currently has no binary releases. Source code and build instructions can be gathered at
+      <a href="//github.com/MasterQ32/LoLa">github.com/MasterQ32/LoLa</a>.
+    </p>
+
+    <a class="anchor" id="community"></a>
+    <h2>Community</h2>
+
+    <p>
+      IRC<br />
+      <a href="irc://irc.freenode.net:6667/#lola-lang">irc.freenode.net/#lola-lang</a>
+    </p>
+
+    <a class="anchor" id="contact"></a>
+    <h2>Contact</h2>
+    <p>
+      <a href="mailto:lola-lang@random-projects.net">lola-lang@random-projects.net</a>
+    </p>
+    <p>&nbsp;</p>
+  </div>
+</body>
+  
+</html>

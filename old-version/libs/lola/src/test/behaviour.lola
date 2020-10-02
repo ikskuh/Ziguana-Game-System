@@ -1,0 +1,277 @@
+///
+// This file tests different behaviours of the LoLa language and is intended to be run
+// via the test suite.
+///
+
+// test basic boolean operations
+Expect(true);
+Expect(true == true);
+Expect(false == false);
+Expect(false != true);
+Expect(true != false);
+
+// test boolean logic not
+Expect((not true) == false);
+Expect((not false) == true);
+
+// test boolean logic and
+Expect((false and false) == false);
+Expect((false and true)  == false);
+Expect((true  and false) == false);
+Expect((true  and true)  == true);
+
+// test boolean logic or
+Expect((false or false) == false);
+Expect((false or true)  == true);
+Expect((true  or false) == true);
+Expect((true  or true)  == true);
+
+// test basic arithmetic
+Expect((1 + 2) == 3);
+Expect((1 - 2) == -1);
+Expect((1 * 2) == 2);
+Expect((1 / 2) == 0.5);
+Expect((1 % 2) == 1);
+
+// test equality
+Expect(void == void);
+
+Expect(10 == 10);
+Expect(2.2 == 2.2);
+
+Expect("" == "");
+Expect("a" == "a");
+Expect("abc" == "abc");
+
+Expect([] == []);
+Expect([1,2] == [1,2]);
+Expect([1,2,3] == [1,2,3]);
+Expect([1,"a",void] == [1,"a",void]);
+
+// test relational operators
+Expect(1 > 0);
+Expect(0 < 1);
+Expect(1 >= 0);
+Expect(0 <= 1);
+Expect(1 >= 1);
+Expect(1 <= 1);
+
+Expect((0 > 1) == false);
+Expect((1 < 0) == false);
+Expect((1 <= 0) == false);
+Expect((0 >= 1) == false);
+
+
+// Test variable assignment
+var v;
+Expect(v == void);
+
+v = 10;
+Expect(v == 10);
+Expect(10 == v);
+
+v = "h";
+ExpectEqual(v, "h");
+
+// Test variable shadowing
+v = 1;
+ExpectEqual(v, 1);
+{
+  var v = 2;
+  ExpectEqual(v, 2);
+}
+ExpectEqual(v, 1);
+
+// Test global access
+function setV(new) {
+  v = new;
+}
+
+v = 1;
+ExpectEqual(v, 1);
+setV(2);
+ExpectEqual(v, 2);
+
+// Test array read indexing
+v = [3,4,5];
+ExpectEqual(3, v[0]);
+ExpectEqual(4, v[1]);
+ExpectEqual(5, v[2]);
+
+// Test array writeback indexing
+v[0] = 6;
+v[1] = 7;
+v[2] = 8;
+ExpectEqual(v[0], 6);
+ExpectEqual(v[1], 7);
+ExpectEqual(v[2], 8);
+
+// Test nested arrays indexing:
+v = [
+  [ 1, 2 ],
+  [ 3, 4 ]
+];
+Expect(v[0] == [ 1, 2 ]);
+Expect(v[1] == [ 3, 4 ]);
+Expect(v[0][0] == 1);
+Expect(v[0][1] == 2);
+Expect(v[1][0] == 3);
+Expect(v[1][1] == 4);
+
+// Test nested arrays writeback:
+v = [
+  [ 1, 2 ],
+  [ 3, 4 ]
+];
+Expect(v[0] == [ 1, 2 ]);
+Expect(v[1] == [ 3, 4 ]);
+v[0][1] = 5;
+Expect(v[0] == [ 1, 5 ]);
+
+// Test array concatenation
+ExpectEqual([]+[], []);
+ExpectEqual([1]+[], [1]);
+ExpectEqual([]+[1], [1]);
+ExpectEqual([1]+[2], [1, 2]);
+ExpectEqual([1,2,3]+[4,5,6], [1,2,3,4,5,6]);
+
+// Test string concatenation
+ExpectEqual(""+"", "");
+ExpectEqual("a"+"", "a");
+ExpectEqual(""+"b", "b");
+ExpectEqual("a"+"b", "ab");
+ExpectEqual("hey"+"hoh"+"doh", "heyhohdoh");
+
+// Test operator precedence
+ExpectEqual(3 + 2 * 1, 5);
+ExpectEqual(3 + 1 * 2, 5);
+ExpectEqual(1 * 2 + 3, 5);
+ExpectEqual(2 * 1 + 3, 5);
+
+// Test operator associativity
+ExpectEqual(3 - 2 - 1, 0);
+ExpectEqual(12 / 2 / 2, 3);
+
+// Test control flow:
+
+{
+  Expect(true);
+}
+
+if(true) {
+  // good path
+} else {
+  Expect(false);
+}
+
+if(false) {
+  Expect(false);
+} else {
+  // good path
+}
+
+while(false) {
+  Expect(false);
+}
+
+{
+  var loops = 0;
+  while(loops == 0) {
+    loops += 1;
+  }
+  ExpectEqual(loops, 1);
+}
+
+{
+  var loops = 0;
+  while(loops < 10) {
+    loops += 1;
+  }
+  ExpectEqual(loops, 10);
+}
+
+{
+  var done = false;
+  while(true) {
+    done = true;
+    break;
+    Expect(false);
+  }
+  ExpectEqual(done, true);
+}
+
+{
+  var count = 0;
+  while(count < 3) {
+    count += 1;
+    if(count > 1)
+      continue;
+    ExpectEqual(count, 1);
+  }
+  ExpectEqual(count, 3);
+}
+
+
+{
+  var loops = 0;
+  for(x in [1,2,3]) {
+    loops += 1;
+  }
+  ExpectEqual(loops, 3);
+}
+
+{
+  var sum = 0;
+  for(x in [1,2,3]) {
+    sum += x;
+  }
+  ExpectEqual(sum, 6);
+}
+
+// Test functions
+
+function Fun1() { }
+
+Fun1(); // basic function call
+
+function Fun2(a) { ExpectEqual(a, "A"); }
+Fun2("A");
+
+function Fun3(a, b) {
+  ExpectEqual(a, "B");
+  ExpectEqual(b, "C");
+}
+Fun3("B", "C");
+
+function Fun4() { return "r"; }
+ExpectEqual(Fun4(), "r");
+
+function Fun5(a) { return a; }
+ExpectEqual(Fun5(), void);
+ExpectEqual(Fun5("D"), "D");
+ExpectEqual(Fun5(1), 1);
+ExpectEqual(Fun5([]), []);
+
+// Character literals
+ExpectEqual(' ', 0x20);
+ExpectEqual('\a', 0x07);
+ExpectEqual('💩', 0x1F4A9);
+ExpectEqual('\xF3', 0xF3);
+ExpectEqual('\xf0\x9f\x92\xa9', 0x1F4A9); // handcrafted utf8 escape sequence
+
+// String indexing
+ExpectEqual("a"[0], 'a');
+ExpectEqual("ab"[0], 'a');
+ExpectEqual("ab"[1], 'b');
+{
+  var mut = "abc";
+  ExpectEqual(mut, "abc");
+  mut[0] = '1';
+  ExpectEqual(mut, "1bc");
+  mut[1] = '2';
+  ExpectEqual(mut, "12c");
+  mut[2] = '3';
+  ExpectEqual(mut, "123");
+}
+
+Print("Behaviour test suite passed.");

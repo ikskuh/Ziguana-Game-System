@@ -1,0 +1,234 @@
+///
+// This file tests the implementation of the LoLa standard library and is
+// intended to be run via the test suite.
+///
+
+/////////////////////////////////////////////////////////////////////
+// String API:
+
+ExpectEqual(Length(""), 0);
+ExpectEqual(Length("a"), 1);
+ExpectEqual(Length("ab"), 2);
+
+ExpectEqual(SubString("hallo", 2), "llo");
+ExpectEqual(SubString("hallo", 2, 2), "ll");
+ 
+ExpectEqual(Trim(""), "");
+ExpectEqual(Trim("a"), "a");
+ExpectEqual(Trim(" a "), "a");
+ExpectEqual(Trim("a "), "a");
+ExpectEqual(Trim(" a"), "a");
+
+ExpectEqual(TrimLeft(""), "");
+ExpectEqual(TrimLeft("a"), "a");
+ExpectEqual(TrimLeft(" a "), "a ");
+ExpectEqual(TrimLeft("a "), "a ");
+ExpectEqual(TrimLeft(" a"), "a");
+
+ExpectEqual(TrimRight(""), "");
+ExpectEqual(TrimRight("a"), "a");
+ExpectEqual(TrimRight(" a "), " a");
+ExpectEqual(TrimRight("a "), "a");
+ExpectEqual(TrimRight(" a"), " a");
+
+ExpectEqual(IndexOf("abcabc", "a"), 0);
+ExpectEqual(IndexOf("abcabc", "b"), 1);
+ExpectEqual(IndexOf("abcabc", "bc"), 1);
+ExpectEqual(IndexOf("abcabc", "d"), void);
+
+ExpectEqual(LastIndexOf("abcabc", "a"), 3);
+ExpectEqual(LastIndexOf("abcabc", "b"), 4);
+ExpectEqual(LastIndexOf("abcabc", "ca"), 2);
+ExpectEqual(LastIndexOf("abcabc", "d"), void);
+
+ExpectEqual(Byte("") , void);
+ExpectEqual(Byte(" "), 0x20);
+ExpectEqual(Byte("!"), 0x21);
+ExpectEqual(Byte("A"), 0x41);
+ExpectEqual(Byte("~"), 0x7E);
+
+ExpectEqual(Chr(0x20), " ");
+ExpectEqual(Chr(0x21), "!");
+ExpectEqual(Chr(0x41), "A");
+ExpectEqual(Chr(0x7E), "~");
+
+ExpectEqual(NumToString(0), "0");
+ExpectEqual(NumToString(1), "1");
+ExpectEqual(NumToString(10), "10");
+ExpectEqual(NumToString(-1), "-1");
+ExpectEqual(NumToString(-1.5), "-1.5");
+ExpectEqual(NumToString(1.5), "1.5");
+
+ExpectEqual(NumToString(2, 2), "10");
+ExpectEqual(NumToString(4, 2), "100");
+ExpectEqual(NumToString(8, 2), "1000");
+ExpectEqual(NumToString(8, 8), "10");
+ExpectEqual(NumToString(0xFF, 16), "FF");
+
+ExpectEqual(StringToNum("0"), 0);
+ExpectEqual(StringToNum("1"), 1);
+ExpectEqual(StringToNum("-1"), -1);
+ExpectEqual(StringToNum("10"), 10);
+ExpectEqual(StringToNum("-10"),  -10);
+ExpectEqual(StringToNum("1.5"),  1.5);
+ExpectEqual(StringToNum("-1.5"), -1.5);
+
+ExpectEqual(StringToNum("10", 2), 2);
+ExpectEqual(StringToNum("10", 3), 3);
+ExpectEqual(StringToNum("10", 4), 4);
+ExpectEqual(StringToNum("10", 5), 5);
+
+ExpectEqual(StringToNum("0x10", 16), 16);
+ExpectEqual(StringToNum("10h", 16), 16);
+ExpectEqual(StringToNum("0x10h", 16), 16);
+
+ExpectEqual(StringToNum(""), void);
+ExpectEqual(StringToNum("lol"), void);
+ExpectEqual(StringToNum("bla10bla"), void);
+
+ExpectEqual(Split("",      ","), [""]);
+ExpectEqual(Split("a",     ","), ["a"]);
+ExpectEqual(Split("a,b",   ","), ["a", "b"]);
+ExpectEqual(Split("a,b,c", ","), ["a", "b", "c"]);
+ExpectEqual(Split("a,,c",  ","), ["a", "", "c"]);
+
+ExpectEqual(Split("",      ",", false), [""]);
+ExpectEqual(Split("a",     ",", false), ["a"]);
+ExpectEqual(Split("a,b",   ",", false), ["a", "b"]);
+ExpectEqual(Split("a,b,c", ",", false), ["a", "b", "c"]);
+ExpectEqual(Split("a,,c",  ",", false), ["a", "", "c"]);
+
+ExpectEqual(Split("",      ",", true), []);
+ExpectEqual(Split("a",     ",", true), ["a"]);
+ExpectEqual(Split("a,b",   ",", true), ["a", "b"]);
+ExpectEqual(Split("a,b,c", ",", true), ["a", "b", "c"]);
+ExpectEqual(Split("a,,c",  ",", true), ["a", "c"]);
+
+
+ExpectEqual(Join([]), "");
+ExpectEqual(Join(["a"]), "a");
+ExpectEqual(Join(["a","b"]), "ab");
+ExpectEqual(Join(["a","b"], ""), "ab");
+ExpectEqual(Join(["a","b"], "|"), "a|b");
+ExpectEqual(Join(["a","b","c"], ""), "abc");
+ExpectEqual(Join(["a","b","c"], "|"), "a|b|c");
+ExpectEqual(Join(["a","b","c"], "->"), "a->b->c");
+
+ExpectEqual(Join(Split("a,b,c", ","), ";"), "a;b;c");
+
+/////////////////////////////////////////////////////////////////////
+// Array API
+
+ExpectEqual(Length([]), 0);
+ExpectEqual(Length([1]), 1);
+ExpectEqual(Length([1,2]), 2);
+
+ExpectEqual(Range(0), []);
+ExpectEqual(Range(1), [0]);
+ExpectEqual(Range(3), [0,1,2]);
+
+ExpectEqual(Range(5, 0), []);
+ExpectEqual(Range(5, 1), [5]);
+ExpectEqual(Range(5, 3), [5,6,7]);
+
+ExpectEqual(Slice([1,2,3],1,0), []);
+ExpectEqual(Slice([1,2,3],1,1), [2]);
+ExpectEqual(Slice([1,2,3],1,2), [2,3]);
+ExpectEqual(Slice([1,2,3],1,3), [2,3]);
+
+ExpectEqual(IndexOf([1,2,3,1,2,3], 1), 0);
+ExpectEqual(IndexOf([1,2,3,1,2,3], 2), 1);
+ExpectEqual(IndexOf([1,2,3,1,2,3], 3), 2);
+ExpectEqual(IndexOf([1,2,3,1,2,3], 4), void);
+
+ExpectEqual(LastIndexOf([1,2,3,1,2,3], 1), 3);
+ExpectEqual(LastIndexOf([1,2,3,1,2,3], 2), 4);
+ExpectEqual(LastIndexOf([1,2,3,1,2,3], 3), 5);
+ExpectEqual(LastIndexOf([1,2,3,1,2,3], 4), void);
+
+/////////////////////////////////////////////////////////////////////
+// Math
+
+// this should be enough precision testing
+
+const Pi = 3.141592653589;
+var delta = 0.00001;
+
+Expect(DeltaEqual(0.000001, 0.000002, delta));
+
+Expect(DeltaEqual(Sin(Pi), 0.0, delta));
+Expect(DeltaEqual(Cos(Pi), -1.0, delta));
+Expect(DeltaEqual(Tan(Pi), 0.0, delta));
+
+Expect(DeltaEqual(Atan(1), Pi/4, delta));
+Expect(DeltaEqual(Atan(10, 10), Pi/4, delta));
+
+Expect(DeltaEqual(Pow(10, 0), 1, delta));
+Expect(DeltaEqual(Pow(10, 1), 10, delta));
+Expect(DeltaEqual(Pow(10, 2), 100, delta));
+Expect(DeltaEqual(Pow(10, 3), 1000, delta));
+
+Expect(DeltaEqual(Log(1), 0, delta));
+Expect(DeltaEqual(Log(10), 1, delta));
+Expect(DeltaEqual(Log(100), 2, delta));
+Expect(DeltaEqual(Log(1000), 3, delta));
+
+Expect(DeltaEqual(Log(1000), 3, delta));
+
+Expect(DeltaEqual(Exp(0), 1, delta));
+Expect(DeltaEqual(Exp(1), 2.71828182845904523536, delta));
+Expect(DeltaEqual(Exp(2), 7.38905609893065022723, delta));
+
+
+/////////////////////////////////////////////////////////////////////
+// Auxiliary library
+
+// Test if we aren't testing in the past (LOL)
+Expect(Timestamp() > 1597775634.0);
+
+// test if we sleep at least 0.1 seconds
+{
+  var start = Timestamp();
+  Sleep(0.1);
+  var delta = Timestamp() - start; 
+  // Print(delta);
+  Expect(delta >= 0.1);
+}
+
+ExpectEqual(TypeOf(void), "void");
+ExpectEqual(TypeOf(true), "boolean");
+ExpectEqual(TypeOf(10.0), "number");
+ExpectEqual(TypeOf("hello"), "string");
+ExpectEqual(TypeOf([]), "array");
+
+ExpectEqual(ToString(void), "void");
+ExpectEqual(ToString(1.0), "1");
+ExpectEqual(ToString(true), "true");
+ExpectEqual(ToString(false), "false");
+ExpectEqual(ToString([]), "[ ]");
+ExpectEqual(ToString([1,2]), "[ 1, 2 ]");
+ExpectEqual(ToString("\n\n"), "\"\n\n\"");
+
+ExpectEqual(HasFunction("Sin"), true);
+ExpectEqual(HasFunction("Cos"), true);
+ExpectEqual(HasFunction("Tan"), true);
+ExpectEqual(HasFunction("FooBar"), false);
+
+// This function yields and should keep the running
+ExpectEqual(Yield(), void);
+
+for(original in [
+  void,
+  true, false,
+  1.0, 1.45,
+  "", "hello",
+  [], [ 1, 2 ], [ "void", void, 0 ]
+])
+{
+  var serialized = Serialize(original);
+  ExpectEqual(TypeOf(serialized), "string");
+  var deserialized = Deserialize(serialized);
+  ExpectEqual(deserialized, original);
+}
+
+Print("Standard library test suite passed.");

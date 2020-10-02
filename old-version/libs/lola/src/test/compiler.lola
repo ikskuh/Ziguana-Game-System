@@ -1,0 +1,148 @@
+///
+// This file tests the compiler implementation and is intended to be compiled
+// via the test suite.
+// It tries to emit every possible instruction and tries to contain every
+// possible syntax construct.
+// This file is not meant to be run, just compiled.
+///
+
+var _; // variable for discarding stuff
+
+var x;
+
+// push_num
+// store_global_index
+x = 10;
+
+var y = 30; // syntax variant
+
+// load_global_index
+// store_global_index
+var z = x;
+
+_ = 1 + 1; // add (number)
+_ = "Hallo," + " Welt!"; // add (string)
+_ = [ 1, 2 ] + [ 3, 4 ]; // add (array)
+_ = 1 - 1; // sub
+_ = 1 * 1; // mul
+_ = 1 / 1; // div
+_ = 1 % 1; // mod
+
+_ += 1;
+_ -= 1;
+_ *= 1;
+_ /= 1;
+_ %= 1;
+
+_ = true; // push_true
+_ = false; // push_false
+_ = void; // push_void
+_ = "Hello, World!"; // push_string
+_ = 10.0; // push_num
+_ = [ ]; // array_pack 0
+_ = [ true, void, 3 ]; // array_pack *
+
+x = -5; // negate
+
+
+var a = [ 42.0 ];
+_ = a[0]; // array_load
+a[0] = 10; // array_store
+
+a = true;
+
+if(a) { // jif, jmp
+  a = 1;
+} else {
+  a = 2;
+}
+
+a = true;
+while(a) { // jif, jmp
+  a = false;
+}
+
+_ = (1 == 2); // eq
+_ = (1 != 2); // neq
+_ = (1 <  2); // less
+_ = (1 <= 2); // less_eq
+_ = (1 >  2); // greater
+_ = (1 >= 2); // greater_eq
+
+function LoadStore(a)
+{
+    var b = a; // load_local, store_local
+    return b;  // load_local
+}
+
+_ = LoadStore(1); // call_fn (script function)
+
+for(x in [1,2,3]) // iter_make, iter_next
+{
+
+}
+
+_ = true and true; // bool_and
+_ = false or true; // bool_or
+_ = not false;     // bool_not
+
+Print("a"); // call_fn (script function)
+
+Sleep(1); // call_fn (async script function)
+
+var global;
+
+function StoreGlobal(x)
+{
+  global = x; // Store to script global
+}
+
+StoreGlobal(10);
+
+// Exercise parser:
+_ = "";
+_ = "x";
+_ = "\n";
+_ = "\r";
+_ = "\t";
+_ = "\a";
+_ = "\b";
+_ = "\e";
+_ = "\xFF";
+
+_ = ' ';
+_ = 'ö';
+_ = '\x7F';
+_ = '💩'; // UTF-8 parsing
+
+// syntax variants:
+
+if(false)
+	Print("true");
+else
+	Print("false");
+
+if(true) 
+	Print("single");
+	
+if(false) {
+	Print("true");
+}
+else {
+	Print("false");
+}
+
+if(true) {
+	Print("single");
+}
+
+// object call syntax
+
+(1 + 2).Method();
+
+var obj;
+_ = obj.Method();
+_ = obj.Method(1);
+_ = obj.Method(1,2,3);
+
+const foo2 = 10;

@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <title>LoLa Playground</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
+  <!-- Stylesheets -->
+  <link rel="stylesheet" href="playground.css">
+  <link rel="stylesheet" href="libs/xterm.css" />
+
+  <!-- External Libraries -->
+  <script src="libs/ace.js" type="text/javascript" charset="utf-8"></script>
+  <script src="libs/xterm.js" type="text/javascript" charset="utf-8"></script>
+  <script src="libs/xterm-addon-fit.js" type="text/javascript" charset="utf-8"></script>
+
+  <!-- Source -->
+  <script src="playground.js" type="text/javascript" charset="utf-8"></script>
+</head>
+
+<body>
+  <nav id="toolbar">
+    <img id="icon" src="img/logo.png" />
+    <span>LoLa Playground</span>
+    <button onclick="validateCode()">Validate</button>
+    <button onclick="runCode()">Run</button>
+    <button id="stopButton" class="hidden" onclick="stopCode()">Stop</button>
+    <div class="spanner"></div>
+    <select id="examples" onchange="loadTemplate(this.selectedIndex)">
+      <option>Hello, World</option>
+      <option>Bubblesort</option>
+      <option>Forth</option>
+      <option>Game</option>
+    </select>
+    <button onclick="showHelp()">Help</button>
+  </nav>
+  <div id="editor">Print("Hello, World!");</div>
+  <div id="output"></div>
+
+</body>
+
+</html>

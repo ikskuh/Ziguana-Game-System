@@ -1,0 +1,216 @@
+@font-face {
+  font-family: 'PT Sans';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('PT Sans'), local('PTSans-Regular'), url(fonts/PT_Sans/PTSans-Regular.ttf) format('truetype');
+}
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: local('Source Code Pro Regular'), local('SourceCodePro-Regular'), url(fonts/Source_Code_Pro/SourceCodePro-Regular.ttf) format('truetype');
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  margin: 0;
+  padding: 0;
+  font-family: 'PT Sans', sans-serif;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  max-width: 60em;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+a.anchor {
+  display: block;
+  position: relative;
+  top: -9em;
+  visibility: hidden;
+}
+
+nav {
+  position: sticky;
+  top: 0;
+  background-color: #ffffff;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+
+  box-shadow: 0px 0.4vw 1vw -.1vw rgba(0, 0, 54, 0.2);
+  border-radius: .0vw .0vw .4vw .4vw;
+}
+
+nav a {
+  text-decoration: none;
+  color: black;
+}
+
+a {
+  transition: text-shadow 0.2s linear;
+  text-shadow: 0vw 0vw 0vw rgba(0,0,0,0);
+}
+
+a:hover {
+  text-decoration: underline;
+  text-shadow: 0.01vw 0.2vw 0.5vw rgba(0,0,0,0.2);
+}
+
+nav h1 {
+  display: inline-block;
+  margin: 0;
+  padding: 1em;
+  align-self: center;
+}
+
+nav ul {
+  display: inline-block;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  align-self: center;
+}
+
+nav ul li {
+  display: inline-block;
+  padding-left: 0.25em;
+  padding-right: 0.25em;
+  height: 100%;
+}
+
+.teaser, .features, .content {
+  padding-left: 2em;
+  padding-right: 2em;
+}
+
+.teaser {
+  background: linear-gradient(to bottom, rgba(75,75,232,0.3) 0%, rgba(32,124,229,0.3) 100%);
+  font-size: 1.2em;
+  padding-top: 1.5em;
+  padding-bottom: 1.5em;
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: center;
+
+  box-shadow: 0px 0.6vw 1vw -.1vw rgba(0, 0, 54, 0.2) inset;
+  border-radius: .3vw .3vw .3vw .3vw;
+
+  margin-top: 0.75vw;
+}
+
+.teaser .text {
+  flex: 1;
+}
+
+a {
+  color: blueviolet;
+  font-weight: bold;
+}
+
+.teaser .logo {
+  width: 10em;
+  height: 10em;
+  border-radius: .3vw .3vw .3vw .3vw;
+}
+
+.features {
+  padding-top: 1em;
+  padding-bottom: 1em;
+}
+
+.features .group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.features .group:nth-of-type(even) {
+  flex-wrap: wrap-reverse;
+}
+
+.features h3 {
+  margin: 0;
+  margin-bottom: 0.5em;
+}
+
+.features p img {
+  vertical-align: bottom;
+  height: 1em;
+}
+
+.features .group .text, .features .group .preview {
+  margin: 0.5em;
+}
+
+.features .group .text {
+  flex: 1;
+  max-width: 50em;
+}
+
+.features .group .preview {
+  display: block;
+  width: 30%;
+  min-width: 20em;
+  padding: 0.5em;
+  background-color: rgba(32,124,229,0.2);
+  color: rgb(0, 0, 0);
+  font-family: 'Source Code Pro', monospace;
+  font-size: 1.3em;
+  display: inline-table;
+
+  box-shadow: 0px 0.2vw 1vw -.1vw rgba(0, 0, 54, 0.2) inset;
+  border-radius: .3vw .3vw .3vw .3vw;
+}
+
+.features .preview pre {
+  margin: 0;
+  padding: 1% 1% 1% 1%;
+}
+
+.features .float-left {
+  float: left;
+  margin-right: 1em;
+}
+
+.features .float-right {
+  float: right;
+  margin-left: 1em;
+}
+
+.features hr {
+  clear: both;
+  margin-top: 0.1em;
+  margin-bottom: 0.1em;
+  visibility: hidden;
+}
+
+.content p {
+  margin-left: 1em;
+}
+
+.content ul li {
+  line-height: 1.4em;
+}
+
+code .kw {
+  color: #a52fff;
+}
+
+code .string {
+  color: #ff6ba1;
+}
+
+code .comment {
+  color: rgb(255, 91, 159);
+}

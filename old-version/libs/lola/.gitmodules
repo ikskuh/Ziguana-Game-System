@@ -1,0 +1,15 @@
+[submodule "libs/args"]
+	path = libs/args
+	url = https://github.com/MasterQ32/zig-args
+[submodule "libs/--recursive"]
+	path = libs/koino
+	url = https://github.com/kivikakk/koino
+[submodule "libs/interface.zig"]
+	path = libs/interface.zig
+	url = https://github.com/alexnask/interface.zig
+[submodule "libs/ace-builds"]
+	path = libs/ace-builds
+	url = https://github.com/ajaxorg/ace-builds
+[submodule "libs/zee_alloc"]
+	path = libs/zee_alloc
+	url = https://github.com/fengb/zee_alloc

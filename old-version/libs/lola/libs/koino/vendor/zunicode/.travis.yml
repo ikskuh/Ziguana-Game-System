@@ -1,0 +1,7 @@
+language: minimal
+install:
+  - wget https://ziglang.org/builds/zig-linux-x86_64-0.5.0+4f594527c.tar.xz
+  - tar xf zig-linux-x86_64-0.5.0+4f594527c.tar.xz
+  - mv zig-linux-x86_64-0.5.0+4f594527c bin
+script:
+  - ./bin/zig build
