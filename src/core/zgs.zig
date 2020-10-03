@@ -82,35 +82,27 @@ pub const Screen = struct {
 
         return buffer;
     }
+
+    fn clear(self: *Self, color: u8) void {
+        for (self.pixels) |*row| {
+            for (row) |*pixel| {
+                pixel.* = color;
+            }
+        }
+    }
 };
 
 /// Initialize a new game system.
-/// Note that the system keeps the pointer to `game`  until the system is closed. Don't free game
-/// before the system is deinitialized.
 /// The system is allocated by allocator to ensure the returned value is a pinned pointer as
 /// System stores internal references.
-pub fn init(allocator: *std.mem.Allocator, game: *const Game) !*System {
+pub fn init(allocator: *std.mem.Allocator) !*System {
     var system = try allocator.create(System);
     errdefer allocator.destroy(system);
 
     system.* = System{
         .allocator = allocator,
-        .game = game,
-        .pool = undefined,
-        .environment = undefined,
-        .vm = undefined,
+        .game = null,
     };
-
-    system.pool = ObjectPool.init(allocator);
-    errdefer system.pool.deinit();
-
-    system.environment = try lola.runtime.Environment.init(allocator, &game.code, system.pool.interface());
-    errdefer system.environment.deinit();
-
-    try lola.libs.std.install(&system.environment, allocator);
-
-    system.vm = try lola.runtime.VM.init(allocator, &system.environment);
-    errdefer system.vm.deinit();
 
     return system;
 }
@@ -118,37 +110,110 @@ pub fn init(allocator: *std.mem.Allocator, game: *const Game) !*System {
 pub const System = struct {
     const Self = @This();
 
+    const State = union(enum) {
+        // Either running the game (if any) or show a broken screen
+        default,
+    };
+
     allocator: *std.mem.Allocator,
 
-    game: *const Game,
-
     virtual_screen: Screen = Screen{},
+
+    state: State = .default,
+    game: ?Game = null,
+    is_finished: bool = false,
+
+    /// Loads the given game, unloading any currently loaded game.
+    /// Note that the system keeps the pointer to `game`  until the system is closed. Don't free game
+    /// before the system is deinitialized.
+    pub fn loadGame(self: *Self, rom: *const GameROM) !void {
+        self.unloadGame();
+
+        self.game = @as(Game, undefined); // makes self.game non-null
+        try Game.init(&self.game.?, self, rom);
+        errdefer game = null;
+    }
+
+    pub fn unloadGame(self: *Self) void {
+        switch (self.state) {
+            .default => {},
+        }
+        if (self.game) |*game| {
+            game.deinit();
+        }
+        self.game = null;
+    }
+
+    pub fn update(self: *Self) !void {
+        switch (self.state) {
+            .default => {
+                if (self.game) |*game| blk: {
+                    const result = game.vm.execute(10_000) catch |err| {
+                        // TODO: Print stack trace here
+                        std.debug.print("failed with {}\n", .{@errorName(err)});
+
+                        self.unloadGame();
+
+                        break :blk;
+                    };
+                    switch (result) {
+                        .completed => self.unloadGame(),
+                        else => {},
+                    }
+                } else {
+                    self.virtual_screen.clear(0xFF);
+                    // what to do here?
+                }
+            },
+        }
+    }
+
+    pub fn deinit(self: *Self) void {
+        self.unloadGame();
+        self.allocator.destroy(self);
+    }
+};
+
+pub const GameROM = struct {
+    name: []const u8,
+    icon: [24][24]u8,
+    code: lola.CompileUnit,
+    data: std.StringHashMap([]const u8),
+};
+
+const Game = struct {
+    const Self = @This();
+    rom: *const GameROM,
 
     pool: ObjectPool,
     environment: lola.runtime.Environment,
     vm: lola.runtime.VM,
 
-    is_finished: bool = false,
+    fn init(game: *Self, system: *System, rom: *const GameROM) !void {
+        game.* = Self{
+            .rom = rom,
 
-    pub fn update(self: *Self) !void {
-        const result = try self.vm.execute(10_000);
-        switch (result) {
-            .completed => self.is_finished = true,
-            else => {},
-        }
+            .pool = undefined,
+            .environment = undefined,
+            .vm = undefined,
+        };
+
+        game.pool = ObjectPool.init(system.allocator);
+        errdefer game.pool.deinit();
+
+        game.environment = try lola.runtime.Environment.init(system.allocator, &rom.code, game.pool.interface());
+        errdefer game.environment.deinit();
+
+        try lola.libs.std.install(&game.environment, system.allocator);
+
+        game.vm = try lola.runtime.VM.init(system.allocator, &game.environment);
+        errdefer game.vm.deinit();
     }
 
     pub fn deinit(self: *Self) void {
         self.vm.deinit();
         self.environment.deinit();
         self.pool.deinit();
-        self.allocator.destroy(self);
+        self.* = undefined;
     }
-};
-
-pub const Game = struct {
-    name: []const u8,
-    icon: [24][24]u8,
-    code: lola.CompileUnit,
-    data: std.StringHashMap([]const u8),
 };

@@ -47,7 +47,7 @@ pub fn main() !void {
     );
     defer screen_buffer.destroy();
 
-    var game = zgs.Game{
+    var game = zgs.GameROM{
         .name = "Example",
         .icon = undefined,
         .code = undefined,
@@ -65,8 +65,10 @@ pub fn main() !void {
     game.data = std.StringHashMap([]const u8).init(gpa);
     defer game.data.deinit();
 
-    var game_system = try zgs.init(gpa, &game);
+    var game_system = try zgs.init(gpa);
     defer game_system.deinit();
+
+    try game_system.loadGame(&game);
 
     var system_timer = try std.time.Timer.start();
 
