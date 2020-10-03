@@ -6,9 +6,21 @@ GpuSetBorder(0);
 SetGraphicsMode(true);
 GpuEnableAutoFlush(false);
 
+// this renders the background image
+{
+  GpuFillRect(0, 0, 120, 90, 0);
+  GpuDrawRect(0, 0, 120, 90, void); 
+
+  GpuFillRect(50, 35, 20, 20, 3);
+  GpuDrawRect(50, 35, 20, 20, void);
+}
+
+// background is a snapshot of the current framebuffer,
+// we can use it as a fullscreen image
+var background = GpuGetFramebuffer();
+
 var x = 56;
 var y = 41;
-
 
 while(true)
 {
@@ -21,12 +33,8 @@ while(true)
   x += JoyGetX();
   y += JoyGetY();
 
-  GpuFillRect(0, 0, 120, 90, 0);
-  GpuDrawRect(0, 0, 120, 90, void); 
-
-  GpuFillRect(50, 35, 20, 20, 3);
-  GpuDrawRect(50, 35, 20, 20, void);
- 
+  // instead of clearing, restore a previous state
+  GpuSetFramebuffer(background);
   GpuBlitBuffer(x, y, 8, ball);
 
   GpuFlush();
