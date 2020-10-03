@@ -13,6 +13,12 @@ var y = 41;
 var color = 1;
 while(true)
 {
+  if(JoyGetB())
+  {
+    var data = PauseGame();
+    Print("Loading game success: ", data);
+  }
+
   x += JoyGetX();
   y += JoyGetY();
 

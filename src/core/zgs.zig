@@ -144,6 +144,14 @@ pub const System = struct {
     const State = union(enum) {
         // Either running the game (if any) or show a broken screen
         default,
+
+        shutdown,
+
+        save_dialog: *SaveGameCall,
+
+        load_dialog: *LoadGameCall,
+
+        pause_dialog: *PauseGameCall,
     };
 
     const GraphicsMode = enum { text, graphics };
@@ -181,19 +189,22 @@ pub const System = struct {
 
     /// Unloads the current game and resumes the home position.
     pub fn unloadGame(self: *Self) void {
-        switch (self.state) {
-            .default => {},
-        }
+        // switch (self.state) {
+        //     .default => {},
+        // }
         if (self.game) |*game| {
             game.deinit();
         }
         self.game = null;
+        self.state = .default;
         self.resetScreen();
     }
 
     pub fn update(self: *Self) !Event {
         defer self.gpu_flush = false;
         switch (self.state) {
+            .shutdown => return .quit,
+
             .default => {
                 if (self.game) |*game| {
                     const result = game.vm.execute(10_000) catch |err| {
@@ -229,6 +240,18 @@ pub const System = struct {
                     // what to do here?
                     return .render;
                 }
+            },
+
+            .save_dialog => |call| {
+                @panic("TODO: Implement save dialog");
+            },
+
+            .load_dialog => |call| {
+                @panic("TODO: Implement load dialog");
+            },
+
+            .pause_dialog => |call| {
+                @panic("TODO: Implement pause dialog");
             },
         }
         unreachable;
@@ -343,15 +366,97 @@ const Game = struct {
     const api = struct {
         // System Control
         fn Poweroff(game: *Game) void {
-            @panic("implement");
+            std.debug.assert(game.system.state == .default);
+            game.system.state = .shutdown;
         }
 
-        fn SaveGame(game: *Game) void {
-            @panic("is asynchronous");
+        fn SaveGame(
+            environment: *lola.runtime.Environment,
+            call_context: lola.runtime.Context,
+            args: []const lola.runtime.Value,
+        ) anyerror!lola.runtime.AsyncFunctionCall {
+            const game = call_context.get(Game);
+
+            if (args.len != 1)
+                return error.InvalidArgs;
+
+            const original_data = try args[0].toString();
+            const data = try game.system.allocator.dupe(u8, original_data);
+            errdefer game.system.allocator.free(data);
+
+            const call = try game.system.allocator.create(SaveGameCall);
+            errdefer game.system.allocator.destroy(call);
+
+            call.* = SaveGameCall{
+                .data = data,
+                .game = game,
+            };
+
+            game.system.state = System.State{
+                .save_dialog = call,
+            };
+
+            return lola.runtime.AsyncFunctionCall{
+                .context = lola.runtime.Context.init(SaveGameCall, call),
+                .execute = SaveGameCall.execute,
+                .destructor = SaveGameCall.destroy,
+            };
         }
 
-        fn LoadGame(game: *Game) void {
-            @panic("is asynchronous");
+        fn LoadGame(
+            environment: *lola.runtime.Environment,
+            call_context: lola.runtime.Context,
+            args: []const lola.runtime.Value,
+        ) anyerror!lola.runtime.AsyncFunctionCall {
+            const game = call_context.get(Game);
+
+            if (args.len != 0)
+                return error.InvalidArgs;
+
+            const call = try game.system.allocator.create(LoadGameCall);
+            errdefer game.system.allocator.destroy(call);
+
+            call.* = LoadGameCall{
+                .game = game,
+            };
+
+            game.system.state = System.State{
+                .load_dialog = call,
+            };
+
+            return lola.runtime.AsyncFunctionCall{
+                .context = lola.runtime.Context.init(LoadGameCall, call),
+                .execute = LoadGameCall.execute,
+                .destructor = LoadGameCall.destroy,
+            };
+        }
+
+        fn PauseGame(
+            environment: *lola.runtime.Environment,
+            call_context: lola.runtime.Context,
+            args: []const lola.runtime.Value,
+        ) anyerror!lola.runtime.AsyncFunctionCall {
+            const game = call_context.get(Game);
+
+            if (args.len != 0)
+                return error.InvalidArgs;
+
+            const call = try game.system.allocator.create(PauseGameCall);
+            errdefer game.system.allocator.destroy(call);
+
+            call.* = PauseGameCall{
+                .game = game,
+            };
+
+            game.system.state = System.State{
+                .pause_dialog = call,
+            };
+
+            return lola.runtime.AsyncFunctionCall{
+                .context = lola.runtime.Context.init(PauseGameCall, call),
+                .execute = PauseGameCall.execute,
+                .destructor = PauseGameCall.destroy,
+            };
         }
 
         fn Pause(game: *Game) void {
@@ -540,4 +645,75 @@ const Game = struct {
             return game.system.joystick.b;
         }
     };
+};
+
+const SaveGameCall = struct {
+    const Self = @This();
+
+    game: *Game,
+    data: []const u8,
+    completed: ?bool = null,
+
+    fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
+        const self = context.get(Self);
+        if (self.completed) |result|
+            return lola.runtime.Value.initBoolean(result);
+        return null;
+    }
+
+    fn destroy(context: lola.runtime.Context) void {
+        const self = context.get(Self);
+
+        self.game.system.allocator.free(self.data);
+        self.game.system.allocator.destroy(self);
+    }
+};
+
+const LoadGameCall = struct {
+    const Self = @This();
+
+    game: *Game,
+    data: ?[]const u8 = null,
+    completed: bool = false,
+
+    fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
+        const self = context.get(Self);
+        if (self.completed) {
+            if (self.data) |data| {
+                return try lola.runtime.Value.initString(self.game.system.allocator, data);
+            }
+            return .void;
+        }
+        return null;
+    }
+
+    fn destroy(context: lola.runtime.Context) void {
+        const self = context.get(Self);
+
+        if (self.data) |data|
+            self.game.system.allocator.free(data);
+        self.game.system.allocator.destroy(self);
+    }
+};
+
+const PauseGameCall = struct {
+    const Self = @This();
+
+    game: *Game,
+    completed: bool = false,
+
+    fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
+        const self = context.get(Self);
+        if (self.completed) {
+            return .void;
+        } else {
+            return null;
+        }
+    }
+
+    fn destroy(context: lola.runtime.Context) void {
+        const self = context.get(Self);
+
+        self.game.system.allocator.destroy(self);
+    }
 };

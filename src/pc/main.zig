@@ -126,7 +126,7 @@ pub fn main() !void {
         }
 
         switch (try game_system.update()) {
-            .yield => std.debug.print("yield\n", .{}),
+            .yield => {},
             .quit => break :main_loop,
             .render => {
                 const screen_content = game_system.virtual_screen.render();
