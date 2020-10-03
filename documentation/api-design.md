@@ -128,7 +128,9 @@ Returns `true` when the `key` is not pressed.
 ## Joystick
 Input API for a connected joystick. The joystick has a analogue stick and two buttons *A* and *B*.
 
-The values returned by `JoyGetX` and `JoyGetY` will always have a euclidean length of `<= 1.0`.
+### `JoyEnableNormalization(enabled: bool) void`
+
+If `enabled` is true, the values returned by `JoyGetX` and `JoyGetY` will always have a euclidean length of `<= 1.0`. Otherwise, the axis will be separated and both have the full range.
 
 ### `JoyGetX(): number`
 Returns a value between `-1.0` and `1.0` that reflects the horizontal position of the joystick. Negative values go left, positive values go right.

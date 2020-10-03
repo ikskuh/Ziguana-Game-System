@@ -89,8 +89,40 @@ pub fn main() !void {
         while (sdl.pollEvent()) |event| {
             switch (event) {
                 .quit => break :main_loop,
+                .key_down => |key| {
+                    switch (key.keysym.scancode) {
+                        else => {},
+                    }
+                },
+                .key_up => |key| {
+                    switch (key.keysym.scancode) {
+                        else => {},
+                    }
+                },
                 else => {},
             }
+        }
+
+        var keyboard = sdl.getKeyboardState();
+        {
+            var joystick_state = zgs.JoystickState{
+                .x = 0,
+                .y = 0,
+                .a = false,
+                .b = false,
+            };
+            if (keyboard.isPressed(.SDL_SCANCODE_LEFT))
+                joystick_state.x -= 1;
+            if (keyboard.isPressed(.SDL_SCANCODE_RIGHT))
+                joystick_state.x += 1;
+            if (keyboard.isPressed(.SDL_SCANCODE_UP))
+                joystick_state.y -= 1;
+            if (keyboard.isPressed(.SDL_SCANCODE_DOWN))
+                joystick_state.y += 1;
+            joystick_state.a = keyboard.isPressed(.SDL_SCANCODE_SPACE);
+            joystick_state.b = keyboard.isPressed(.SDL_SCANCODE_ESCAPE);
+
+            game_system.setJoystick(joystick_state);
         }
 
         switch (try game_system.update()) {

@@ -103,6 +103,13 @@ pub const Screen = struct {
     }
 };
 
+pub const JoystickState = struct {
+    x: f64,
+    y: f64,
+    a: bool,
+    b: bool,
+};
+
 /// Initialize a new game system.
 /// The system is allocated by allocator to ensure the returned value is a pinned pointer as
 /// System stores internal references.
@@ -151,6 +158,15 @@ pub const System = struct {
 
     graphics_mode: GraphicsMode = .text,
     gpu_auto_flush: bool = true,
+    gpu_flush: bool = false,
+
+    is_joystick_normalized: bool = false,
+    joystick: JoystickState = JoystickState{
+        .x = 0,
+        .y = 0,
+        .a = false,
+        .b = false,
+    },
 
     /// Loads the given game, unloading any currently loaded game.
     /// Note that the system keeps the pointer to `game`  until the system is closed. Don't free game
@@ -176,6 +192,7 @@ pub const System = struct {
     }
 
     pub fn update(self: *Self) !Event {
+        defer self.gpu_flush = false;
         switch (self.state) {
             .default => {
                 if (self.game) |*game| {
@@ -194,11 +211,15 @@ pub const System = struct {
                             self.unloadGame();
                             return .yield;
                         },
-                        .exhausted => return if (self.gpu_auto_flush)
-                            .render
-                        else
-                            .yield,
-                        .paused => return if (self.gpu_auto_flush)
+                        .exhausted => {
+                            // we exhausted, which means there's no possibility we have a gpu_flush
+                            std.debug.assert(!self.gpu_flush);
+                            return if (self.gpu_auto_flush)
+                                .render
+                            else
+                                .yield;
+                        },
+                        .paused => return if (self.gpu_auto_flush or self.gpu_flush)
                             .render
                         else
                             .yield,
@@ -216,6 +237,21 @@ pub const System = struct {
     pub fn deinit(self: *Self) void {
         self.unloadGame();
         self.allocator.destroy(self);
+    }
+
+    pub fn setJoystick(self: *Self, joy: JoystickState) void {
+        if (self.is_joystick_normalized) {
+            var joybuf = joy;
+            const len2 = joy.x * joy.x + joy.y * joy.y;
+            if (len2 > 1.0) {
+                const len = std.math.sqrt(len2);
+                joybuf.x /= len;
+                joybuf.y /= len;
+            }
+            self.joystick = joybuf;
+        } else {
+            self.joystick = joy;
+        }
     }
 
     fn resetScreen(self: *Self) void {
@@ -271,6 +307,14 @@ const Game = struct {
             const lola_fn = if (Type == lola.runtime.UserFunctionCall)
                 lola.runtime.Function{
                     .syncUser = .{
+                        .context = lola.runtime.Context.init(Game, game),
+                        .call = function,
+                        .destructor = null,
+                    },
+                }
+            else if (Type == lola.runtime.AsyncUserFunctionCall)
+                lola.runtime.Function{
+                    .asyncUser = .{
                         .context = lola.runtime.Context.init(Game, game),
                         .call = function,
                         .destructor = null,
@@ -438,8 +482,27 @@ const Game = struct {
             game.system.virtual_screen.border_color = color orelse 0xFF;
         }
 
-        fn GpuFlush(game: *Game) void {
-            // TODO: Implement pausing
+        fn GpuFlush(
+            environment: *lola.runtime.Environment,
+            call_context: lola.runtime.Context,
+            args: []const lola.runtime.Value,
+        ) anyerror!lola.runtime.AsyncFunctionCall {
+            if (args.len != 0)
+                return error.TypeMismatch;
+
+            const Impl = struct {
+                fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
+                    const game = context.get(Game);
+                    game.system.gpu_flush = true;
+                    return .void;
+                }
+            };
+
+            return lola.runtime.AsyncFunctionCall{
+                .context = call_context,
+                .execute = Impl.execute,
+                .destructor = null,
+            };
         }
 
         fn GpuEnableAutoFlush(game: *Game, enabled: bool) void {
@@ -456,20 +519,25 @@ const Game = struct {
         }
 
         // Joystick
+
+        fn JoyEnableNormalization(game: *Game, enabled: bool) void {
+            game.system.is_joystick_normalized = enabled;
+        }
+
         fn JoyGetX(game: *Game) f64 {
-            return 0.0;
+            return game.system.joystick.x;
         }
 
         fn JoyGetY(game: *Game) f64 {
-            return 0.0;
+            return game.system.joystick.y;
         }
 
         fn JoyGetA(game: *Game) bool {
-            return false;
+            return game.system.joystick.a;
         }
 
         fn JoyGetB(game: *Game) bool {
-            return false;
+            return game.system.joystick.b;
         }
     };
 };

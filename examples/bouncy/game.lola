@@ -4,6 +4,7 @@ Print(ball);
 
 GpuSetBorder(0);
 SetGraphicsMode(true);
+GpuEnableAutoFlush(false);
 
 var x = 56;
 var y = 41;
@@ -17,12 +18,10 @@ while(true)
 
   GpuFillRect(0, 0, 120, 90, 0); 
 
-  GpuDrawRect(20, 20, 40, 25, color);
+  GpuDrawRect(50, 35, 20, 20, 0xFF);
   color += 1;
   if(color >= 16)
     color = 1;
-
-  GpuScroll(-19,-10);
 
   GpuBlitBuffer(x, y, 8, ball);
 
