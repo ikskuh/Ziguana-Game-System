@@ -3,6 +3,7 @@
 This file is a [GNU TAR](https://www.gnu.org/software/tar/manual/html_node/Standard.html) file which contains all relevant parts of a game.
 
 The file follows this rough structure:
+
 ```
 .
 ├── game.lm
