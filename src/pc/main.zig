@@ -47,36 +47,13 @@ pub fn main() !void {
     );
     defer screen_buffer.destroy();
 
-    var game = zgs.GameROM{
-        .name = "Example",
-        .icon = undefined,
-        .code = undefined,
-        .data = undefined,
+    var game = blk: {
+        var dir = try std.fs.cwd().openDir("examples/bouncy", .{});
+        defer dir.close();
+
+        break :blk try createROMFromDirectory(dir);
     };
-
-    game.code = blk: {
-        var file = try std.fs.cwd().openFile("examples/bouncy/game.lola.lm", .{});
-        defer file.close();
-
-        break :blk try lola.CompileUnit.loadFromStream(gpa, file.reader());
-    };
-    defer game.code.deinit();
-
-    game.data = std.StringHashMap([]const u8).init(gpa);
-    defer game.data.deinit();
-
-    try game.data.put(
-        "ball.ico",
-        "" ++
-            "...ff..." ++
-            "..fddf.." ++
-            ".fd99df." ++
-            "fd9999df" ++
-            "fd9999df" ++
-            ".fd99df." ++
-            "..fddf.." ++
-            "...ff...",
-    );
+    defer deinitROM(&game);
 
     var game_system = try zgs.init(gpa);
     defer game_system.deinit();
@@ -139,4 +116,113 @@ pub fn main() !void {
             },
         }
     }
+}
+
+fn createROMFromDirectory(dir: std.fs.Dir) !zgs.GameROM {
+    var game = zgs.GameROM{
+        .name = undefined,
+        .icon = undefined,
+        .code = undefined,
+        .data = undefined,
+    };
+
+    game.name = blk: {
+        var file = try dir.openFile("game.name", .{});
+        defer file.close();
+
+        break :blk try file.readToEndAlloc(gpa, 64);
+    };
+    errdefer gpa.free(game.name);
+
+    blk: {
+        var file = dir.openFile("game.ico", .{}) catch |err| switch (err) {
+            // when file not there, just leave the default icon
+            error.FileNotFound => break :blk,
+            else => |e| return e,
+        };
+        defer file.close();
+
+        try file.reader().readNoEof(std.mem.asBytes(&game.icon));
+    }
+
+    game.code = if (dir.openFile("game.lola", .{})) |file| blk: {
+        defer file.close();
+
+        const source = try file.readToEndAlloc(gpa, 1 << 10); // 1 MB of source is a lot
+        defer gpa.free(source);
+
+        var diagnostics = lola.compiler.Diagnostics.init(gpa);
+        defer diagnostics.deinit();
+
+        var module_or_null = try lola.compiler.compile(
+            gpa,
+            &diagnostics,
+            "game.lola",
+            source,
+        );
+
+        for (diagnostics.messages.items) |msg| {
+            std.debug.print("{}\n", .{msg});
+        }
+
+        break :blk module_or_null orelse return error.InvalidSource;
+    } else |err| blk: {
+        if (err != error.FileNotFound)
+            return err;
+
+        var file = try dir.openFile("game.lola.lm", .{});
+        defer file.close();
+
+        break :blk try lola.CompileUnit.loadFromStream(gpa, file.reader());
+    };
+
+    errdefer game.code.deinit();
+
+    game.data = std.StringHashMap([]const u8).init(gpa);
+    errdefer game.data.deinit();
+
+    var data_directory = dir.openDir("data", .{
+        .iterate = true,
+        .no_follow = true,
+    }) catch |err| switch (err) {
+        // No data directory, we are done
+        error.FileNotFound => return game,
+        else => |e| return e,
+    };
+    defer data_directory.close();
+
+    // TODO: Iterate recursively through all subfolders
+    var iterator = data_directory.iterate();
+    while (try iterator.next()) |entry| {
+        switch (entry.kind) {
+            .File => {
+                var file = try data_directory.openFile(entry.name, .{});
+                defer file.close();
+
+                const name = try gpa.dupe(u8, entry.name);
+                errdefer gpa.free(name);
+
+                const contents = try file.readToEndAlloc(gpa, 16 << 20); // 16 MB
+                errdefer gpa.free(contents);
+
+                try game.data.put(name, contents);
+            },
+            .Directory => @panic("TODO: Directory recursion not implemented yet!"),
+            else => {},
+        }
+    }
+
+    return game;
+}
+
+fn deinitROM(rom: *zgs.GameROM) void {
+    var iter = rom.data.iterator();
+    while (iter.next()) |kv| {
+        gpa.free(kv.key);
+        gpa.free(kv.value);
+    }
+    gpa.free(rom.name);
+    rom.code.deinit();
+    rom.data.deinit();
+    rom.* = undefined;
 }

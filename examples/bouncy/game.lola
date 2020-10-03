@@ -1,6 +1,6 @@
 const ball = LoadData("ball.ico");
 
-Print(ball);
+Print("ball.ico: \"", ball, "\"");
 
 GpuSetBorder(0);
 SetGraphicsMode(true);
