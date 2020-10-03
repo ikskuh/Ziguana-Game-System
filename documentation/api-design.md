@@ -16,6 +16,11 @@ When the user selected a save game, the data is returned as a `string`, if the u
 ### `Pause() void`
 Opens the pause screen of the console. The user can then decide to resume the game at any time.
 
+## Resource Management
+
+### `LoadData(path: string) string|void`
+Will load a resource located at `"data/" + path`
+
 ## Text Mode
 
 This is the default mode of the system. It displays a primitive text terminal with 20×15 characters of size and a small 6×6 pixel font.
@@ -63,7 +68,7 @@ Pixels are encoded as bytes in a string, where each byte encodes a color between
 ### `SetGraphicsMode(enabled: bool) void`
 If `enabled == true`, the system will enable graphics mode, otherwise it will enable text mode.
 
-### `GpuSetPixel(x: number, y: number, c: number|void) void`
+### `GpuSetPixel(x: number, y: number, color: number|void) void`
 Sets the pixel at (`x`, `y`) to `c` where `c` is a number between `0` and `15` or `void`.
 
 ### `GpuGetPixel(x: number, y: number) number|void`
@@ -99,7 +104,7 @@ Scrolls the screen content by the given amount into x and y direction. Contents 
 
 This is helpful for scrolling backgrounds and similar.
 
-### `GpuSetBorder(c: number) void`
+### `GpuSetBorder(color: number) void`
 Sets the background color of the border around the screen.
 
 ### `GpuFlush() void`
@@ -115,10 +120,10 @@ If `enabled` is true, the graphics functions will always draw directly to the sc
 > To be done
 
 ### `KbdIsDown(key: string) bool`
+Returns `true` when the `key` is pressed.
 
 ### `KbdIsUp(key: string) bool`
-
-### `KbdIsHit(key: string) bool`
+Returns `true` when the `key` is not pressed.
 
 ## Joystick
 Input API for a connected joystick. The joystick has a analogue stick and two buttons *A* and *B*.
@@ -136,3 +141,27 @@ Returns `true` when the *A* button is pressed.
 
 ### `JoyGetB(): bool`
 Returns `true` when the *B* button is pressed.
+
+## Audio System
+
+### `PlaySound(name: string, volume: number) void`
+Plays a sound called `name` with the given `volume` (between `0.0` and `1.0`).
+
+### `LoopSound(name: string, volume: number) object`
+Plays a sound in a loop and returns a handle to the playing sound. The loop can be controlled via this handle:
+
+#### `SoundHandle.Stop() void`
+Will stop the loop from playing and will make the sound handle invalid (destroys the object).
+
+#### `SoundHandle.Pause() void`
+Will stop the loop from playing at the current position.
+
+#### `SoundHandle.Resume() void`
+Lets a paused loop continue to play
+
+#### `SoundHandle.SetVolume(volume: number) void`
+Will change the volume of the loop.
+
+### `PlayMusic(music: string, fade_time: number) void`
+Starts playing the track `music`, stopping all previously played music.
+The tracks will smoothly fade one into the other over `fade_time` seconds. If `fade_time` is not given, 0.5 seconds will be used to fade the tracks.

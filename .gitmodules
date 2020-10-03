@@ -1,3 +1,12 @@
 [submodule "lib/lola"]
 	path = libs/lola
 	url = https://github.com/MasterQ32/LoLa
+[submodule "extern/LoLa"]
+	path = extern/lola
+	url = https://github.com/MasterQ32/LoLa
+[submodule "extern/sdl2"]
+	path = extern/sdl2
+	url = https://github.com/masterQ32/SDL.zig
+[submodule "extern/interface"]
+	path = extern/interface
+	url = https://github.com/alexnask/interface.zig
