@@ -65,6 +65,19 @@ pub fn main() !void {
     game.data = std.StringHashMap([]const u8).init(gpa);
     defer game.data.deinit();
 
+    try game.data.put(
+        "ball.ico",
+        "" ++
+            "...ff..." ++
+            "..fddf.." ++
+            ".fd99df." ++
+            "fd9999df" ++
+            "fd9999df" ++
+            ".fd99df." ++
+            "..fddf.." ++
+            "...ff...",
+    );
+
     var game_system = try zgs.init(gpa);
     defer game_system.deinit();
 
@@ -80,14 +93,18 @@ pub fn main() !void {
             }
         }
 
-        try game_system.update();
+        switch (try game_system.update()) {
+            .yield => std.debug.print("yield\n", .{}),
+            .quit => break :main_loop,
+            .render => {
+                const screen_content = game_system.virtual_screen.render();
 
-        const screen_content = game_system.virtual_screen.render();
+                try screen_buffer.update(std.mem.sliceAsBytes(&screen_content), @sizeOf(zgs.Screen.RGBA) * screen_content[0].len, null);
 
-        try screen_buffer.update(std.mem.sliceAsBytes(&screen_content), @sizeOf(zgs.Screen.RGBA) * screen_content[0].len, null);
+                try renderer.copy(screen_buffer, null, null);
 
-        try renderer.copy(screen_buffer, null, null);
-
-        renderer.present();
+                renderer.present();
+            },
+        }
     }
 }

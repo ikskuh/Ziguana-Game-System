@@ -1,6 +1,11 @@
 const std = @import("std");
 
 const pkgs = struct {
+    const painterz = std.build.Pkg{
+        .name = "painterz",
+        .path = "extern/painterz/painterz.zig",
+    };
+
     const interface = std.build.Pkg{
         .name = "interface",
         .path = "extern/interface/interface.zig",
@@ -23,7 +28,7 @@ const pkgs = struct {
         .name = "zgs",
         .path = "src/core/zgs.zig",
         .dependencies = &[_]std.build.Pkg{
-            lola,
+            lola, painterz,
         },
     };
 };

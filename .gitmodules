@@ -10,3 +10,6 @@
 [submodule "extern/interface"]
 	path = extern/interface
 	url = https://github.com/alexnask/interface.zig
+[submodule "extern/painterz"]
+	path = extern/painterz
+	url = https://github.com/ziglibs/painterz

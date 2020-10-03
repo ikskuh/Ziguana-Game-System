@@ -69,7 +69,7 @@ Pixels are encoded as bytes in a string, where each byte encodes a color between
 If `enabled == true`, the system will enable graphics mode, otherwise it will enable text mode.
 
 ### `GpuSetPixel(x: number, y: number, color: number|void) void`
-Sets the pixel at (`x`, `y`) to `c` where `c` is a number between `0` and `15` or `void`.
+Sets the pixel at (`x`, `y`) to `c` where `c` is a number between `0` and `15` or `void` for a broken pixel.
 
 ### `GpuGetPixel(x: number, y: number) number|void`
 Returns the color index of a pixel at (`x`, `y`) or `void` if the pixel is broken.
