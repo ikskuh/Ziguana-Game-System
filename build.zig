@@ -11,6 +11,11 @@ const pkgs = struct {
         .path = "extern/interface/interface.zig",
     };
 
+    const args = std.build.Pkg{
+        .name = "args",
+        .path = "extern/args/args.zig",
+    };
+
     const lola = std.build.Pkg{
         .name = "lola",
         .path = "extern/lola/src/library/main.zig",
@@ -41,11 +46,12 @@ pub fn build(b: *std.build.Builder) void {
     pc_exe.addPackage(pkgs.sdl2);
     pc_exe.addPackage(pkgs.zgs);
     pc_exe.addPackage(pkgs.lola);
+    pc_exe.addPackage(pkgs.args);
 
     pc_exe.install();
 
     const run_step = pc_exe.run();
-
+    run_step.addArg("--directory");
     run_step.addArg("examples/bouncy");
 
     b.step("run", "Starts the game system").dependOn(&run_step.step);

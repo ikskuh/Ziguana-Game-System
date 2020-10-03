@@ -2,12 +2,26 @@ const std = @import("std");
 const zgs = @import("zgs");
 const lola = @import("lola");
 const sdl = @import("sdl2");
+const args_parser = @import("args");
 
 var gpa_state = std.heap.GeneralPurposeAllocator(.{}){};
 const gpa = &gpa_state.allocator;
 
-pub fn main() !void {
+const CliArgs = struct {
+    directory: ?[]const u8 = null,
+    game: ?[]const u8 = null,
+};
+
+pub fn main() !u8 {
     defer _ = gpa_state.deinit();
+
+    var cli_args = try args_parser.parseForCurrentProcess(CliArgs, gpa);
+    defer cli_args.deinit();
+
+    if (cli_args.options.directory != null and cli_args.options.game != null) {
+        @panic("print usage message and error");
+        // return 1;
+    }
 
     try sdl.init(.{
         .video = true,
@@ -47,18 +61,21 @@ pub fn main() !void {
     );
     defer screen_buffer.destroy();
 
-    var game = blk: {
-        var dir = try std.fs.cwd().openDir("examples/bouncy", .{});
-        defer dir.close();
-
-        break :blk try createROMFromDirectory(dir);
-    };
-    defer deinitROM(&game);
-
     var game_system = try zgs.init(gpa);
     defer game_system.deinit();
 
-    try game_system.loadGame(&game);
+    var game: ?zgs.GameROM = null;
+
+    if (cli_args.options.directory) |directory_path| {
+        var dir = try std.fs.cwd().openDir(directory_path, .{});
+        defer dir.close();
+
+        game = try createROMFromDirectory(dir);
+    }
+
+    defer if (game) |*g| deinitROM(g);
+    if (game) |*g|
+        try game_system.loadGame(g);
 
     var system_timer = try std.time.Timer.start();
 
@@ -116,6 +133,8 @@ pub fn main() !void {
             },
         }
     }
+
+    return 0;
 }
 
 fn createROMFromDirectory(dir: std.fs.Dir) !zgs.GameROM {

@@ -13,3 +13,6 @@
 [submodule "extern/painterz"]
 	path = extern/painterz
 	url = https://github.com/ziglibs/painterz
+[submodule "extern/args"]
+	path = extern/args
+	url = https://github.com/MasterQ32/zig-args

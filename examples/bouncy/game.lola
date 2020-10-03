@@ -10,7 +10,6 @@ var x = 56;
 var y = 41;
 
 
-var color = 1;
 while(true)
 {
   if(JoyGetB())
@@ -22,13 +21,12 @@ while(true)
   x += JoyGetX();
   y += JoyGetY();
 
-  GpuFillRect(0, 0, 120, 90, 0); 
+  GpuFillRect(0, 0, 120, 90, 0);
+  GpuDrawRect(0, 0, 120, 90, void); 
 
-  GpuDrawRect(50, 35, 20, 20, 0xFF);
-  color += 1;
-  if(color >= 16)
-    color = 1;
-
+  GpuFillRect(50, 35, 20, 20, 3);
+  GpuDrawRect(50, 35, 20, 20, void);
+ 
   GpuBlitBuffer(x, y, 8, ball);
 
   GpuFlush();

@@ -545,16 +545,16 @@ const Game = struct {
             }
         }
 
-        fn GpuDrawLine(game: *Game, x0: i32, y0: i32, x1: i32, y1: i32, color: u8) void {
-            game.system.canvas().drawLine(x0, y0, x1, y1, color);
+        fn GpuDrawLine(game: *Game, x0: i32, y0: i32, x1: i32, y1: i32, color: ?u8) void {
+            game.system.canvas().drawLine(x0, y0, x1, y1, color orelse 0xFF);
         }
 
-        fn GpuDrawRect(game: *Game, x: i32, y: i32, w: u32, h: u32, color: u8) void {
-            game.system.canvas().drawRectangle(x, y, w, h, color);
+        fn GpuDrawRect(game: *Game, x: i32, y: i32, w: u32, h: u32, color: ?u8) void {
+            game.system.canvas().drawRectangle(x, y, w, h, color orelse 0xFF);
         }
 
-        fn GpuFillRect(game: *Game, x: i32, y: i32, w: u31, h: u31, color: u8) void {
-            game.system.canvas().fillRectangle(x, y, w, h, color);
+        fn GpuFillRect(game: *Game, x: i32, y: i32, w: u31, h: u31, color: ?u8) void {
+            game.system.canvas().fillRectangle(x, y, w, h, color orelse 0xFF);
         }
 
         fn GpuDrawText(game: *Game, x: i32, y: i32, text: []const u8) void {
