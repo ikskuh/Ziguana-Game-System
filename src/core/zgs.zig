@@ -4,15 +4,142 @@ const painterz = @import("painterz");
 
 pub const ObjectPool = lola.runtime.ObjectPool(.{});
 
-fn parsePixelValue(value: u8) ?u4 {
-    return switch (value) {
-        0...15 => @truncate(u4, value),
-        '0'...'9' => @truncate(u4, value - '0'),
-        'a'...'f' => @truncate(u4, value - 'a' + 10),
-        'A'...'F' => @truncate(u4, value - 'F' + 10),
+fn parsePixelValue(value: ?u8) ?u4 {
+    if (value == null)
+        return null;
+    return switch (value.?) {
+        0...15 => @truncate(u4, value.?),
+        '0'...'9' => @truncate(u4, value.? - '0'),
+        'a'...'f' => @truncate(u4, value.? - 'a' + 10),
+        'A'...'F' => @truncate(u4, value.? - 'F' + 10),
         else => null,
     };
 }
+
+pub const TextTerminal = struct {
+    const Self = @This();
+
+    const raw_font = @as([6 * 256]u8, @embedFile("res/font.dat").*);
+
+    const CursorPosition = struct {
+        x: usize,
+        y: usize,
+    };
+
+    const Char = struct {
+        data: u8,
+        color: ?u4,
+
+        const empty = @This(){
+            .data = ' ',
+            .color = null,
+        };
+    };
+
+    pub const width = 20;
+    pub const height = 15;
+
+    const empty_row = [1]Char{Char.empty} ** width;
+    const empty_screen = [1][20]Char{empty_row} ** height;
+
+    content: [height][width]Char = empty_screen,
+    cursor_visible: bool = true,
+    cursor_position: CursorPosition = CursorPosition{ .x = 0, .y = 0 },
+
+    bg_color: ?u4 = 0,
+    fg_color: ?u4 = 15,
+
+    pub fn getGlyph(char: u8) [6]u8 {
+        return raw_font[6 * @as(usize, char) ..][0..6].*;
+    }
+
+    pub fn render(self: Self, screen: *Screen, cursor_blink_active: bool) void {
+        for (self.content) |line, row| {
+            for (line) |char, column| {
+                const glyph = getGlyph(char.data);
+                var y: usize = 0;
+                while (y < 6) : (y += 1) {
+                    // unroll 6 pixel-set operations
+                    comptime var x = 0;
+                    inline while (x < 6) : (x += 1) {
+                        screen.pixels[6 * row + y][6 * column + x] = if ((glyph[y] & (1 << x)) != 0)
+                            char.color orelse @as(u8, 0xFF)
+                        else
+                            self.bg_color orelse @as(u8, 0xFF);
+                    }
+                }
+            }
+        }
+
+        if (self.cursor_visible and cursor_blink_active) {
+            var y: usize = 0;
+            while (y < 6) : (y += 1) {
+                var x: usize = 0;
+                while (x < 6) : (x += 1) {
+                    screen.pixels[6 * self.cursor_position.y + y][6 * self.cursor_position.x + x] = self.fg_color orelse 0xFF;
+                }
+            }
+        }
+    }
+
+    pub fn clear(self: *Self) void {
+        self.content = empty_screen;
+        self.cursor_position = CursorPosition{
+            .x = 0,
+            .y = 0,
+        };
+    }
+
+    pub fn scroll(self: *Self, amount: u32) void {
+        if (amount > self.content.len) {
+            self.content = empty_screen;
+        } else {
+            var r: usize = 1;
+            while (r < self.content.len) : (r += 1) {
+                self.content[r - 1] = self.content[r];
+            }
+            self.content[self.content.len - 1] = empty_row;
+        }
+    }
+
+    pub fn put(self: *Self, char: u8) void {
+        switch (char) {
+            '\r' => self.cursor_position.x = 0,
+            '\n' => self.cursor_position.y += 1,
+            else => {
+                self.content[self.cursor_position.y][self.cursor_position.x] = Char{
+                    .data = char,
+                    .color = self.fg_color,
+                };
+                self.cursor_position.x += 1;
+            },
+        }
+        if (self.cursor_position.x >= self.content[0].len) {
+            self.cursor_position.x = 0;
+            self.cursor_position.y += 1;
+        }
+        if (self.cursor_position.y >= self.content.len) {
+            self.scroll(1);
+            self.cursor_position.y -= 1;
+        }
+    }
+
+    pub fn write(self: *Self, string: []const u8) void {
+        for (string) |c| {
+            self.put(c);
+        }
+    }
+
+    const Writer = std.io.Writer(*Self, error{}, struct {
+        fn write(self: *Self, buffer: []const u8) error{}!usize {
+            self.write(buffer);
+            return buffer.len;
+        }
+    }.write);
+    pub fn writer(self: *Self) Writer {
+        return Writer{ .context = self };
+    }
+};
 
 pub const Screen = struct {
     const Self = @This();
@@ -159,6 +286,7 @@ pub const System = struct {
     allocator: *std.mem.Allocator,
 
     virtual_screen: Screen = Screen{},
+    virtual_terminal: TextTerminal = TextTerminal{},
 
     state: State = .default,
     game: ?Game = null,
@@ -202,43 +330,47 @@ pub const System = struct {
 
     pub fn update(self: *Self) !Event {
         defer self.gpu_flush = false;
-        switch (self.state) {
+        const loop_event: Event = switch (self.state) {
             .shutdown => return .quit,
 
-            .default => {
+            .default => blk: {
                 if (self.game) |*game| {
                     const result = game.vm.execute(10_000) catch |err| {
-                        // TODO: Print stack trace here
-                        std.debug.print("failed with {}\n", .{@errorName(err)});
+                        if (err == error.PoweroffSignal) {
+                            self.state = .shutdown;
+                            break :blk .yield;
+                        } else {
+                            // TODO: Print stack trace here
+                            std.debug.print("failed with {}\n", .{@errorName(err)});
 
-                        try game.vm.printStackTrace(std.io.getStdOut().writer());
-
+                            try game.vm.printStackTrace(std.io.getStdOut().writer());
+                        }
                         self.unloadGame();
 
-                        return .render;
+                        break :blk Event.render;
                     };
                     switch (result) {
                         .completed => {
                             self.unloadGame();
-                            return .yield;
+                            break :blk Event.yield;
                         },
                         .exhausted => {
                             // we exhausted, which means there's no possibility we have a gpu_flush
                             std.debug.assert(!self.gpu_flush);
-                            return if (self.gpu_auto_flush)
-                                .render
+                            break :blk if (self.gpu_auto_flush)
+                                Event.render
                             else
-                                .yield;
+                                Event.yield;
                         },
-                        .paused => return if (self.gpu_auto_flush or self.gpu_flush)
-                            .render
+                        .paused => break :blk if (self.gpu_auto_flush or self.gpu_flush)
+                            Event.render
                         else
-                            .yield,
+                            Event.yield,
                     }
                 } else {
                     self.virtual_screen.clear(0xFF);
                     // what to do here?
-                    return .render;
+                    break :blk Event.render;
                 }
             },
 
@@ -253,8 +385,16 @@ pub const System = struct {
             .pause_dialog => |call| {
                 @panic("TODO: Implement pause dialog");
             },
+        };
+
+        if (self.graphics_mode == .text and (loop_event == .render or loop_event == .yield)) {
+            self.virtual_terminal.render(
+                &self.virtual_screen,
+                @mod(std.time.milliTimestamp(), 1000) >= 500,
+            );
+            return .render;
         }
-        unreachable;
+        return loop_event;
     }
 
     pub fn deinit(self: *Self) void {
@@ -365,9 +505,10 @@ const Game = struct {
 
     const api = struct {
         // System Control
-        fn Poweroff(game: *Game) void {
+        fn Poweroff(game: *Game) error{PoweroffSignal} {
             std.debug.assert(game.system.state == .default);
             game.system.state = .shutdown;
+            return error.PoweroffSignal;
         }
 
         fn SaveGame(
@@ -480,13 +621,81 @@ const Game = struct {
             context: lola.runtime.Context,
             args: []const lola.runtime.Value,
         ) anyerror!lola.runtime.Value {
-            const stderr = std.io.getStdErr().writer();
+            const game = context.get(Game);
+
+            const output = game.system.virtual_terminal.writer();
             for (args) |arg| {
-                try stderr.print("{}", .{arg});
+                if (arg == .string) {
+                    try output.print("{s}", .{arg.toString() catch unreachable});
+                } else {
+                    try output.print("{}", .{arg});
+                }
             }
-            try stderr.writeAll("\n");
+            try output.writeAll("\r\n");
 
             return .void;
+        }
+
+        fn Input(game: *Game, prompt: ?[]const u8) ?lola.runtime.String {
+            // TODO: Implement Input
+            return null;
+        }
+
+        fn TxtClear(game: *Game) void {
+            game.system.virtual_terminal.clear();
+        }
+
+        fn TxtSetBackground(game: *Game, color: ?u8) void {
+            game.system.virtual_terminal.bg_color = parsePixelValue(color);
+        }
+
+        fn TxtSetForeground(game: *Game, color: ?u8) void {
+            game.system.virtual_terminal.fg_color = parsePixelValue(color);
+        }
+
+        fn TxtWrite(
+            environment: *lola.runtime.Environment,
+            context: lola.runtime.Context,
+            args: []const lola.runtime.Value,
+        ) anyerror!lola.runtime.Value {
+            const game = context.get(Game);
+
+            const output = game.system.virtual_terminal.writer();
+            for (args) |arg| {
+                if (arg == .string) {
+                    try output.print("{s}", .{arg.toString() catch unreachable});
+                } else {
+                    try output.print("{}", .{arg});
+                }
+            }
+
+            // TODO: Return number of chars written
+            return .void;
+        }
+
+        fn TxtRead(game: *Game) !lola.runtime.String {
+            @panic("TODO: Implement TxtRead!");
+        }
+
+        fn TxtReadLine(game: *Game) !?lola.runtime.String {
+            @panic("TODO: Implement TxtReadLine!");
+        }
+
+        fn TxtEnableCursor(game: *Game, enabled: bool) void {
+            game.system.virtual_terminal.cursor_visible = enabled;
+        }
+
+        fn TxtSetCursor(game: *Game, x: i32, y: i32) void {
+            if (x < 0 or x >= TextTerminal.width)
+                return;
+            if (y < 0 or y >= TextTerminal.height)
+                return;
+            game.system.virtual_terminal.cursor_position.x = @intCast(u5, x);
+            game.system.virtual_terminal.cursor_position.y = @intCast(u5, y);
+        }
+
+        fn TxtScroll(game: *Game, lines: u32) void {
+            game.system.virtual_terminal.scroll(lines);
         }
 
         // Graphics Mode

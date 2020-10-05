@@ -167,7 +167,7 @@ fn createROMFromDirectory(dir: std.fs.Dir) !zgs.GameROM {
     game.code = if (dir.openFile("game.lola", .{})) |file| blk: {
         defer file.close();
 
-        const source = try file.readToEndAlloc(gpa, 1 << 10); // 1 MB of source is a lot
+        const source = try file.readToEndAlloc(gpa, 1 << 20); // 1 MB of source is a lot
         defer gpa.free(source);
 
         var diagnostics = lola.compiler.Diagnostics.init(gpa);

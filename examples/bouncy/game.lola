@@ -2,6 +2,8 @@ const ball = LoadData("ball.ico");
 
 Print("ball.ico: \"", ball, "\"");
 
+Sleep(1);
+
 GpuSetBorder(6);
 SetGraphicsMode(true);
 GpuEnableAutoFlush(false);

@@ -1,5 +1,7 @@
 const std = @import("std");
 
+const is_windows_host = (std.builtin.os.tag == .windows);
+
 const pkgs = struct {
     const painterz = std.build.Pkg{
         .name = "painterz",
@@ -55,4 +57,32 @@ pub fn build(b: *std.build.Builder) void {
     run_step.addArg("examples/bouncy");
 
     b.step("run", "Starts the game system").dependOn(&run_step.step);
+
+    const resources_step = b.step("resources", "Regenerates the resource files");
+
+    {
+        const compile_mkbitmap = b.addSystemCommand(&[_][]const u8{
+            if (is_windows_host) "C:\\Windows\\Microsoft.NET\\Framework\\v.4.0.30319\\csc" else "mcs",
+            "src/tools/mkbitmap.cs",
+            "/r:System.Drawing.dll",
+            "/out:zig-cache/bin/mkbitmap.exe",
+        });
+
+        const build_font = b.addSystemCommand(if (is_windows_host)
+            &[_][]const u8{
+                "zig-cache\\bin\\mkbitmap.exe",
+                "res/Nobbins6x6.png",
+                "src/core/res/font.dat",
+            }
+        else
+            &[_][]const u8{
+                "mono",
+                "zig-cache\\bin\\mkbitmap.exe",
+                "res/Nobbins6x6.png",
+                "src/core/res/font.dat",
+            });
+        build_font.step.dependOn(&compile_mkbitmap.step);
+
+        resources_step.dependOn(&build_font.step);
+    }
 }
