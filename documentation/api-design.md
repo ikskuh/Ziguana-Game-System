@@ -122,7 +122,7 @@ Draws the rectangle outline between the points (`x`, `y`) and (`x+w-1`,`y+h-1`) 
 
 Fills the rectangle between the points (`x`, `y`) and (`x+w-1`,`y+h-1`) with color `c`.
 
-### `GpuDrawText(x, y, text)`
+### `GpuDrawText(x: number, y: number, color: number, text: string) void`
 
 Draws a string `text ` starting at (`x`, `y`). The font size is 6×6 pixels, which gives a maximum text density of 20×15 characters.
 

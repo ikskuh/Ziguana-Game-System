@@ -39,5 +39,19 @@ while(true)
   GpuSetFramebuffer(background);
   GpuBlitBuffer(x, y, 8, ball);
 
+  GpuDrawText(
+    2,
+    2,
+    15,
+    "X = " + NumToString(x)
+  );
+
+  GpuDrawText(
+    2,
+    8,
+    15,
+    "Y = " + NumToString(y)
+  );
+
   GpuFlush();
 }

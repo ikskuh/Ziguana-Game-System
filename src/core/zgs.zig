@@ -49,20 +49,28 @@ pub const TextTerminal = struct {
     bg_color: ?u4 = 0,
     fg_color: ?u4 = 15,
 
-    pub fn getGlyph(char: u8) [6]u8 {
-        return raw_font[6 * @as(usize, char) ..][0..6].*;
+    const Glyph = struct {
+        bits: [6]u8,
+
+        inline fn get(self: @This(), x: u3, y: u3) bool {
+            return (self.bits[y] & (@as(u8, 1) << x)) != 0;
+        }
+    };
+
+    pub fn getGlyph(char: u8) Glyph {
+        return Glyph{ .bits = raw_font[6 * @as(usize, char) ..][0..6].* };
     }
 
     pub fn render(self: Self, screen: *Screen, cursor_blink_active: bool) void {
         for (self.content) |line, row| {
             for (line) |char, column| {
                 const glyph = getGlyph(char.data);
-                var y: usize = 0;
+                var y: u3 = 0;
                 while (y < 6) : (y += 1) {
                     // unroll 6 pixel-set operations
                     comptime var x = 0;
                     inline while (x < 6) : (x += 1) {
-                        screen.pixels[6 * row + y][6 * column + x] = if ((glyph[y] & (1 << x)) != 0)
+                        screen.pixels[6 * row + y][6 * column + x] = if ((glyph.get(x, y)))
                             char.color orelse @as(u8, 0xFF)
                         else
                             self.bg_color orelse @as(u8, 0xFF);
@@ -766,8 +774,29 @@ const Game = struct {
             game.system.canvas().fillRectangle(x, y, w, h, color orelse 0xFF);
         }
 
-        fn GpuDrawText(game: *Game, x: i32, y: i32, text: []const u8) void {
-            @panic("todo");
+        fn GpuDrawText(game: *Game, ox: i32, oy: i32, color: ?u8, text: []const u8) void {
+            var dx = ox;
+            var dy = oy;
+
+            for (text) |char| {
+                const glyph = TextTerminal.getGlyph(char);
+
+                var y: u3 = 0;
+                while (y < 6) : (y += 1) {
+                    comptime var x: u3 = 0;
+                    inline while (x < 6) : (x += 1) {
+                        if (glyph.get(x, y)) {
+                            game.system.virtual_screen.set(
+                                dx + @as(i32, x),
+                                dy + @as(i32, y),
+                                color orelse 0xFF,
+                            );
+                        }
+                    }
+                }
+
+                dx += 6;
+            }
         }
 
         fn GpuScroll(game: *Game, src_dx: i32, src_dy: i32) void {
