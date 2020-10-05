@@ -2,9 +2,30 @@
 
 This is a fake/virtual console which is work in progress.
 
+![Screenshot](https://mq32.de/public/406aea3df91ef2445067c4b4850e99d50c3c32bd.png)
+
 ## Info
 
-## Palette
+A small virtual console programmed in [LoLa](https://lola.random-projects.net/). Create low-resolution pixel art games with an ease!
+
+## Specs
+
+- 120×90 pixel resolution
+- 16 color fixed palette
+- programmed in [LoLa](https://lola.random-projects.net/)
+- (planned) crossplatform support for
+	- Windows
+	- Linux
+	- Android
+	- x86 freestanding (ZGS as an OS)
+
+### APIs
+
+The console provides APIs for saving/loading game states, accessing resource data, drawing simple graphics, interface with the text mode, do audio playback, and read inputs.
+
+For a full documentation of the API, see [documentation/api-design.md](documentation/api-design.md).
+
+### Palette
 
 Uses [Dawnbringers 16](https://lospec.com/palette-list/dawnbringer-16) palette:
 
@@ -26,3 +47,4 @@ Uses [Dawnbringers 16](https://lospec.com/palette-list/dawnbringer-16) palette:
 | D     | `#6dc2ca` | dim cyan    | ![#6dc2ca](https://via.placeholder.com/15/6dc2ca/000000?text=+) |
 | E     | `#dad45e` | yellow      | ![#dad45e](https://via.placeholder.com/15/dad45e/000000?text=+) |
 | F     | `#deeed6` | white       | ![#deeed6](https://via.placeholder.com/15/deeed6/000000?text=+) |
+
