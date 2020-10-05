@@ -24,7 +24,7 @@ jobs:
     
     - uses: mstksg/get-package@v1
       with:
-        apt-get: mono-mcs mtools syslinux syslinux-common
+        apt-get: mono-mcs mtools syslinux syslinux-common sdl2-dev
     
     - name: Build kernel
       working-directory: ./kernel
