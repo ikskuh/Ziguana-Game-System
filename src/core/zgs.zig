@@ -11,15 +11,44 @@ fn parsePixelValue(value: ?u8) ?u4 {
         0...15 => @truncate(u4, value.?),
         '0'...'9' => @truncate(u4, value.? - '0'),
         'a'...'f' => @truncate(u4, value.? - 'a' + 10),
-        'A'...'F' => @truncate(u4, value.? - 'F' + 10),
+        'A'...'F' => @truncate(u4, value.? - 'A' + 10),
         else => null,
     };
+}
+
+pub const Color = struct {
+    const black = 0x0;
+    const dark_purple = 0x1;
+    const dark_blue = 0x2;
+    const dark_gray = 0x3;
+    const brown = 0x4;
+    const dark_green = 0x5;
+    const red = 0x6;
+    const gray = 0x7;
+    const blue = 0x8;
+    const orange = 0x9;
+    const light_gray = 0xA;
+    const green = 0xB;
+    const skin = 0xC;
+    const dim_cyan = 0xD;
+    const yellow = 0xE;
+    const white = 0xF;
+};
+
+comptime {
+    if (Screen.width % TextTerminal.width != 0)
+        @compileError("TextTerminal.width is not a integer divisor of Screen.width!");
+    if (Screen.height % TextTerminal.height != 0)
+        @compileError("TextTerminal.height is not a integer divisor of Screen.height!");
+
+    if ((Screen.width / TextTerminal.width) != (Screen.height / TextTerminal.height))
+        @compileError("TextTerminal does not have square tiles!");
 }
 
 pub const TextTerminal = struct {
     const Self = @This();
 
-    const raw_font = @as([6 * 256]u8, @embedFile("res/font.dat").*);
+    const raw_font = @as([tile_size * 256]u8, @embedFile("res/font.dat").*);
 
     const CursorPosition = struct {
         x: usize,
@@ -38,6 +67,13 @@ pub const TextTerminal = struct {
 
     pub const width = 20;
     pub const height = 15;
+    pub const tile_size = Screen.width / width;
+
+    comptime {
+        if (tile_size < 1 or tile_size > 8) {
+            @compileError("TextTerminal.tile_size must be less or equal than 8 pixel large!");
+        }
+    }
 
     const empty_row = [1]Char{Char.empty} ** width;
     const empty_screen = [1][20]Char{empty_row} ** height;
@@ -50,7 +86,7 @@ pub const TextTerminal = struct {
     fg_color: ?u4 = 15,
 
     const Glyph = struct {
-        bits: [6]u8,
+        bits: [tile_size]u8,
 
         inline fn get(self: @This(), x: u3, y: u3) bool {
             return (self.bits[y] & (@as(u8, 1) << x)) != 0;
@@ -58,19 +94,19 @@ pub const TextTerminal = struct {
     };
 
     pub fn getGlyph(char: u8) Glyph {
-        return Glyph{ .bits = raw_font[6 * @as(usize, char) ..][0..6].* };
+        return Glyph{ .bits = raw_font[tile_size * @as(usize, char) ..][0..tile_size].* };
     }
 
     pub fn render(self: Self, screen: *Screen, cursor_blink_active: bool) void {
         for (self.content) |line, row| {
             for (line) |char, column| {
                 const glyph = getGlyph(char.data);
-                var y: u3 = 0;
-                while (y < 6) : (y += 1) {
+                var y: usize = 0;
+                while (y < tile_size) : (y += 1) {
                     // unroll 6 pixel-set operations
                     comptime var x = 0;
-                    inline while (x < 6) : (x += 1) {
-                        screen.pixels[6 * row + y][6 * column + x] = if ((glyph.get(x, y)))
+                    inline while (x < tile_size) : (x += 1) {
+                        screen.pixels[tile_size * row + y][tile_size * column + x] = if ((glyph.get(x, @truncate(u3, y))))
                             char.color orelse @as(u8, 0xFF)
                         else
                             self.bg_color orelse @as(u8, 0xFF);
@@ -81,10 +117,10 @@ pub const TextTerminal = struct {
 
         if (self.cursor_visible and cursor_blink_active) {
             var y: usize = 0;
-            while (y < 6) : (y += 1) {
+            while (y < tile_size) : (y += 1) {
                 var x: usize = 0;
-                while (x < 6) : (x += 1) {
-                    screen.pixels[6 * self.cursor_position.y + y][6 * self.cursor_position.x + x] = self.fg_color orelse 0xFF;
+                while (x < tile_size) : (x += 1) {
+                    screen.pixels[tile_size * self.cursor_position.y + y][tile_size * self.cursor_position.x + x] = self.fg_color orelse 0xFF;
                 }
             }
         }
@@ -159,9 +195,9 @@ pub const Screen = struct {
         a: u8 = 0xFF,
     };
 
-    pub const border_size = 12;
-    pub const width = 120;
-    pub const height = 90;
+    pub const border_size = 16;
+    pub const width = 160;
+    pub const height = 120;
 
     pub const total_width = 2 * border_size + width;
     pub const total_height = 2 * border_size + height;
@@ -236,13 +272,156 @@ pub const Screen = struct {
             }
         }
     }
+
+    fn scroll(self: *Self, src_dx: i32, src_dy: i32) void {
+        const srcbuf = self.pixels;
+
+        const dx: u32 = @intCast(u32, @mod(-src_dx, Screen.width));
+        const dy: u32 = @intCast(u32, @mod(-src_dy, Screen.height));
+
+        if (dx == 0 and dy == 0)
+            return;
+
+        const H = struct {
+            fn wrapAdd(a: usize, b: u32, comptime limit: comptime_int) u32 {
+                return (@intCast(u32, a) + b) % limit;
+            }
+        };
+
+        for (self.pixels) |*row, y| {
+            for (row) |*pixel, x| {
+                pixel.* = srcbuf[H.wrapAdd(y, dy, Screen.height)][H.wrapAdd(x, dx, Screen.width)];
+            }
+        }
+    }
+
+    fn blitBuffer(self: *Self, dst_x: i32, dst_y: i32, buffer_width: u31, pixel_buffer: []const u8) void {
+        if (buffer_width == 0)
+            return;
+        var index: usize = 0;
+
+        var dy: u31 = 0;
+        while (true) : (dy += 1) {
+            var dx: u31 = 0;
+            while (dx < buffer_width) : (dx += 1) {
+                const pixel = pixel_buffer[index];
+                if (parsePixelValue(pixel)) |color| {
+                    self.set(
+                        dst_x + @as(i32, dx),
+                        dst_y + @as(i32, dy),
+                        color,
+                    );
+                }
+                index += 1;
+                if (index >= pixel_buffer.len)
+                    return;
+            }
+        }
+    }
+
+    fn drawText(self: *Self, x: i32, y: i32, color: ?u8, text: []const u8) void {
+        var dx = x;
+        var dy = y;
+
+        for (text) |char| {
+            const glyph = TextTerminal.getGlyph(char);
+
+            var iy: u4 = 0;
+            while (iy < TextTerminal.tile_size) : (iy += 1) {
+                comptime var ix: u4 = 0;
+                inline while (ix < TextTerminal.tile_size) : (ix += 1) {
+                    if (glyph.get(@truncate(u3, ix), @truncate(u3, iy))) {
+                        self.set(
+                            dx + @as(i32, ix),
+                            dy + @as(i32, iy),
+                            color orelse 0xFF,
+                        );
+                    }
+                }
+            }
+
+            dx += TextTerminal.tile_size;
+        }
+    }
+};
+
+pub const JoystickButton = struct {
+    const Self = @This();
+
+    is_pressed: bool = false,
+    press_state: bool = false,
+    release_state: bool = false,
+
+    pub fn wasHit(self: *Self) bool {
+        defer self.press_state = self.is_pressed;
+        return if (self.is_pressed)
+            !self.press_state
+        else
+            false;
+    }
+
+    pub fn wasReleased(self: *Self) bool {
+        defer self.release_state = self.is_pressed;
+        return if (!self.is_pressed)
+            self.release_state
+        else
+            false;
+    }
+
+    /// Syncs the event states so no cached event might be happening
+    fn resetEvent(self: *Self) void {
+        self.press_state = self.is_pressed;
+        self.release_state = self.is_pressed;
+    }
 };
 
 pub const JoystickState = struct {
     x: f64,
     y: f64,
+
     a: bool,
     b: bool,
+    go: bool,
+    menu: bool,
+};
+
+const Joystick = struct {
+    const Self = @This();
+
+    x: f64 = 0,
+    y: f64 = 0,
+
+    up: JoystickButton = JoystickButton{},
+    down: JoystickButton = JoystickButton{},
+    left: JoystickButton = JoystickButton{},
+    right: JoystickButton = JoystickButton{},
+
+    a: JoystickButton = JoystickButton{},
+    b: JoystickButton = JoystickButton{},
+    go: JoystickButton = JoystickButton{},
+    menu: JoystickButton = JoystickButton{},
+
+    fn update(self: *Self, state: JoystickState) void {
+        self.x = state.x;
+        self.y = state.y;
+
+        self.up.is_pressed = self.y < -0.1;
+        self.down.is_pressed = self.y > 0.1;
+        self.left.is_pressed = self.x < -0.1;
+        self.right.is_pressed = self.x > 0.1;
+
+        self.a.is_pressed = state.a;
+        self.b.is_pressed = state.b;
+        self.go.is_pressed = state.go;
+        self.menu.is_pressed = state.menu;
+    }
+
+    fn resetEvents(self: *Self) void {
+        self.a.resetEvent();
+        self.b.resetEvent();
+        self.go.resetEvent();
+        self.menu.resetEvent();
+    }
 };
 
 /// Initialize a new game system.
@@ -305,12 +484,7 @@ pub const System = struct {
     gpu_flush: bool = false,
 
     is_joystick_normalized: bool = false,
-    joystick: JoystickState = JoystickState{
-        .x = 0,
-        .y = 0,
-        .a = false,
-        .b = false,
-    },
+    joystick: Joystick = Joystick{},
 
     /// Loads the given game, unloading any currently loaded game.
     /// Note that the system keeps the pointer to `game`  until the system is closed. Don't free game
@@ -362,15 +536,7 @@ pub const System = struct {
                             self.unloadGame();
                             break :blk Event.yield;
                         },
-                        .exhausted => {
-                            // we exhausted, which means there's no possibility we have a gpu_flush
-                            std.debug.assert(!self.gpu_flush);
-                            break :blk if (self.gpu_auto_flush)
-                                Event.render
-                            else
-                                Event.yield;
-                        },
-                        .paused => break :blk if (self.gpu_auto_flush or self.gpu_flush)
+                        .exhausted, .paused => break :blk if (self.gpu_auto_flush or self.gpu_flush)
                             Event.render
                         else
                             Event.yield,
@@ -383,7 +549,36 @@ pub const System = struct {
             },
 
             .save_dialog => |call| {
-                @panic("TODO: Implement save dialog");
+                std.debug.assert(self.game != null);
+
+                if (self.joystick.menu.wasHit()) {
+                    call.result = false;
+                    return self.closeDialog(&call.dialog);
+                }
+
+                if (self.joystick.b.wasHit()) {
+                    call.result = true;
+                    return self.closeDialog(&call.dialog);
+                }
+
+                if (self.joystick.up.wasHit() and call.selected_slot > 0) {
+                    call.selected_slot -= 1;
+                }
+
+                if (self.joystick.down.wasHit() and call.selected_slot < 2) {
+                    call.selected_slot += 1;
+                }
+
+                self.virtual_screen.clear(Color.light_gray);
+                self.virtual_screen.drawText(0, 0, Color.white, "Chose your save game:");
+
+                self.virtual_screen.drawText(0, 16, Color.white, "[ ] <empty>");
+                self.virtual_screen.drawText(0, 24, Color.white, "[ ] <empty>");
+                self.virtual_screen.drawText(0, 32, Color.white, "[ ] <empty>");
+
+                self.virtual_screen.drawText(8, 16 + 8 * call.selected_slot, Color.red, "X");
+
+                return .render;
             },
 
             .load_dialog => |call| {
@@ -391,7 +586,18 @@ pub const System = struct {
             },
 
             .pause_dialog => |call| {
-                @panic("TODO: Implement pause dialog");
+                std.debug.assert(self.game != null);
+
+                if (self.joystick.menu.wasHit()) {
+                    return self.closeDialog(&call.dialog);
+                }
+
+                self.virtual_screen.clear(Color.light_gray);
+                self.virtual_screen.drawText(6, 6, Color.white, "The game is paused");
+
+                self.virtual_screen.blitBuffer(48, 33, 24, std.mem.asBytes(&self.game.?.rom.icon));
+
+                return .render;
             },
         };
 
@@ -403,6 +609,13 @@ pub const System = struct {
             return .render;
         }
         return loop_event;
+    }
+
+    fn closeDialog(self: *Self, dialog: *Dialog) Event {
+        dialog.completed = true;
+        self.state = .default;
+        self.virtual_screen.pixels = dialog.screen_backup;
+        return .render;
     }
 
     pub fn deinit(self: *Self) void {
@@ -419,9 +632,9 @@ pub const System = struct {
                 joybuf.x /= len;
                 joybuf.y /= len;
             }
-            self.joystick = joybuf;
+            self.joystick.update(joybuf);
         } else {
-            self.joystick = joy;
+            self.joystick.update(joy);
         }
     }
 
@@ -511,6 +724,15 @@ const Game = struct {
         self.* = undefined;
     }
 
+    fn initDialog(self: *Self) Dialog {
+        self.system.joystick.resetEvents();
+        return Dialog{
+            .game = self,
+            .screen_backup = self.system.virtual_screen.pixels,
+            .completed = false,
+        };
+    }
+
     const api = struct {
         // System Control
         fn Poweroff(game: *Game) error{PoweroffSignal} {
@@ -538,7 +760,7 @@ const Game = struct {
 
             call.* = SaveGameCall{
                 .data = data,
-                .game = game,
+                .dialog = game.initDialog(),
             };
 
             game.system.state = System.State{
@@ -566,7 +788,7 @@ const Game = struct {
             errdefer game.system.allocator.destroy(call);
 
             call.* = LoadGameCall{
-                .game = game,
+                .dialog = game.initDialog(),
             };
 
             game.system.state = System.State{
@@ -580,7 +802,7 @@ const Game = struct {
             };
         }
 
-        fn PauseGame(
+        fn Pause(
             environment: *lola.runtime.Environment,
             call_context: lola.runtime.Context,
             args: []const lola.runtime.Value,
@@ -594,7 +816,7 @@ const Game = struct {
             errdefer game.system.allocator.destroy(call);
 
             call.* = PauseGameCall{
-                .game = game,
+                .dialog = game.initDialog(),
             };
 
             game.system.state = System.State{
@@ -606,10 +828,6 @@ const Game = struct {
                 .execute = PauseGameCall.execute,
                 .destructor = PauseGameCall.destroy,
             };
-        }
-
-        fn Pause(game: *Game) void {
-            @panic("is asynchronous");
         }
 
         // Resource Management
@@ -741,25 +959,7 @@ const Game = struct {
         }
 
         fn GpuBlitBuffer(game: *Game, dst_x: i32, dst_y: i32, width: u31, pixel_buffer: []const u8) void {
-            var index: usize = 0;
-
-            var dy: u31 = 0;
-            while (true) : (dy += 1) {
-                var dx: u31 = 0;
-                while (dx < width) : (dx += 1) {
-                    const pixel = pixel_buffer[index];
-                    if (parsePixelValue(pixel)) |color| {
-                        game.system.virtual_screen.set(
-                            dst_x + @as(i32, dx),
-                            dst_y + @as(i32, dy),
-                            color,
-                        );
-                    }
-                    index += 1;
-                    if (index >= pixel_buffer.len)
-                        return;
-                }
-            }
+            game.system.virtual_screen.blitBuffer(dst_x, dst_y, width, pixel_buffer);
         }
 
         fn GpuDrawLine(game: *Game, x0: i32, y0: i32, x1: i32, y1: i32, color: ?u8) void {
@@ -774,51 +974,12 @@ const Game = struct {
             game.system.canvas().fillRectangle(x, y, w, h, color orelse 0xFF);
         }
 
-        fn GpuDrawText(game: *Game, ox: i32, oy: i32, color: ?u8, text: []const u8) void {
-            var dx = ox;
-            var dy = oy;
-
-            for (text) |char| {
-                const glyph = TextTerminal.getGlyph(char);
-
-                var y: u3 = 0;
-                while (y < 6) : (y += 1) {
-                    comptime var x: u3 = 0;
-                    inline while (x < 6) : (x += 1) {
-                        if (glyph.get(x, y)) {
-                            game.system.virtual_screen.set(
-                                dx + @as(i32, x),
-                                dy + @as(i32, y),
-                                color orelse 0xFF,
-                            );
-                        }
-                    }
-                }
-
-                dx += 6;
-            }
+        fn GpuDrawText(game: *Game, x: i32, y: i32, color: ?u8, text: []const u8) void {
+            game.system.virtual_screen.drawText(x, y, color, text);
         }
 
-        fn GpuScroll(game: *Game, src_dx: i32, src_dy: i32) void {
-            const srcbuf = game.system.virtual_screen.pixels;
-
-            const dx: u32 = @intCast(u32, @mod(-src_dx, Screen.width));
-            const dy: u32 = @intCast(u32, @mod(-src_dy, Screen.height));
-
-            if (dx == 0 and dy == 0)
-                return;
-
-            const H = struct {
-                fn wrapAdd(a: usize, b: u32, comptime limit: comptime_int) u32 {
-                    return (@intCast(u32, a) + b) % limit;
-                }
-            };
-
-            for (game.system.virtual_screen.pixels) |*row, y| {
-                for (row) |*pixel, x| {
-                    pixel.* = srcbuf[H.wrapAdd(y, dy, Screen.height)][H.wrapAdd(x, dx, Screen.width)];
-                }
-            }
+        fn GpuScroll(game: *Game, dx: i32, dy: i32) void {
+            game.system.virtual_screen.scroll(dx, dy);
         }
 
         fn GpuSetBorder(game: *Game, color: ?u8) void {
@@ -876,49 +1037,95 @@ const Game = struct {
         }
 
         fn JoyGetA(game: *Game) bool {
-            return game.system.joystick.a;
+            return game.system.joystick.a.is_pressed;
         }
 
         fn JoyGetB(game: *Game) bool {
-            return game.system.joystick.b;
+            return game.system.joystick.b.is_pressed;
+        }
+
+        fn JoyGetGo(game: *Game) bool {
+            return game.system.joystick.go.is_pressed;
+        }
+
+        fn JoyGetMenu(game: *Game) bool {
+            return game.system.joystick.menu.is_pressed;
+        }
+
+        fn JoyHitA(game: *Game) bool {
+            return game.system.joystick.a.wasHit();
+        }
+
+        fn JoyHitB(game: *Game) bool {
+            return game.system.joystick.b.wasHit();
+        }
+
+        fn JoyHitGo(game: *Game) bool {
+            return game.system.joystick.go.wasHit();
+        }
+
+        fn JoyHitMenu(game: *Game) bool {
+            return game.system.joystick.menu.wasHit();
+        }
+
+        fn JoyReleaseA(game: *Game) bool {
+            return game.system.joystick.a.wasReleased();
+        }
+
+        fn JoyReleaseB(game: *Game) bool {
+            return game.system.joystick.b.wasReleased();
+        }
+
+        fn JoyReleaseGo(game: *Game) bool {
+            return game.system.joystick.go.wasReleased();
+        }
+
+        fn JoyReleaseMenu(game: *Game) bool {
+            return game.system.joystick.menu.wasReleased();
         }
     };
+};
+
+const Dialog = struct {
+    game: *Game,
+    screen_backup: [Screen.height][Screen.width]u8,
+    completed: bool,
 };
 
 const SaveGameCall = struct {
     const Self = @This();
 
-    game: *Game,
+    dialog: Dialog,
     data: []const u8,
-    completed: ?bool = null,
+    result: ?bool = null,
+    selected_slot: u8 = 0,
 
     fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
         const self = context.get(Self);
-        if (self.completed) |result|
-            return lola.runtime.Value.initBoolean(result);
+        if (self.dialog.completed)
+            return lola.runtime.Value.initBoolean(self.result orelse @panic("call.result wasn't set before calling closeDialog!"));
         return null;
     }
 
     fn destroy(context: lola.runtime.Context) void {
         const self = context.get(Self);
 
-        self.game.system.allocator.free(self.data);
-        self.game.system.allocator.destroy(self);
+        self.dialog.game.system.allocator.free(self.data);
+        self.dialog.game.system.allocator.destroy(self);
     }
 };
 
 const LoadGameCall = struct {
     const Self = @This();
 
-    game: *Game,
+    dialog: Dialog,
     data: ?[]const u8 = null,
-    completed: bool = false,
 
     fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
         const self = context.get(Self);
-        if (self.completed) {
+        if (self.dialog.completed) {
             if (self.data) |data| {
-                return try lola.runtime.Value.initString(self.game.system.allocator, data);
+                return try lola.runtime.Value.initString(self.dialog.game.system.allocator, data);
             }
             return .void;
         }
@@ -929,20 +1136,19 @@ const LoadGameCall = struct {
         const self = context.get(Self);
 
         if (self.data) |data|
-            self.game.system.allocator.free(data);
-        self.game.system.allocator.destroy(self);
+            self.dialog.game.system.allocator.free(data);
+        self.dialog.game.system.allocator.destroy(self);
     }
 };
 
 const PauseGameCall = struct {
     const Self = @This();
 
-    game: *Game,
-    completed: bool = false,
+    dialog: Dialog,
 
     fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
         const self = context.get(Self);
-        if (self.completed) {
+        if (self.dialog.completed) {
             return .void;
         } else {
             return null;
@@ -952,6 +1158,6 @@ const PauseGameCall = struct {
     fn destroy(context: lola.runtime.Context) void {
         const self = context.get(Self);
 
-        self.game.system.allocator.destroy(self);
+        self.dialog.game.system.allocator.destroy(self);
     }
 };

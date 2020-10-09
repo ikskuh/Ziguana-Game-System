@@ -2,7 +2,9 @@ const ball = LoadData("ball.ico");
 
 Print("ball.ico: \"", ball, "\"");
 
-Sleep(1);
+Print("Press [A] to start!");
+
+// while(not JoyHitA()) { }
 
 GpuSetBorder(6);
 SetGraphicsMode(true);
@@ -10,26 +12,30 @@ GpuEnableAutoFlush(false);
 
 // this renders the background image
 {
-  GpuFillRect(0, 0, 120, 90, 0);
-  GpuDrawRect(0, 0, 120, 90, void); 
+  GpuFillRect(0, 0, 160, 120, 0);
+  GpuDrawRect(0, 0, 160, 120, void); 
 
-  GpuFillRect(50, 35, 20, 20, 3);
-  GpuDrawRect(50, 35, 20, 20, void);
+  GpuFillRect(70, 50, 20, 20, 3);
+  GpuDrawRect(70, 50, 20, 20, void);
 }
 
 // background is a snapshot of the current framebuffer,
 // we can use it as a fullscreen image
 var background = GpuGetFramebuffer();
 
-var x = 56;
-var y = 41;
+var x = 76;
+var y = 56;
 
 while(true)
 {
-  if(JoyGetB())
+  if(JoyHitMenu())
   {
-    var data = PauseGame();
-    Print("Loading game success: ", data);
+    var success = SaveGame("This is horrible");
+    if(success)
+      GpuSetBorder(0xB);
+    else
+      GpuSetBorder(0x6);
+
   }
 
   x += JoyGetX();
@@ -48,7 +54,7 @@ while(true)
 
   GpuDrawText(
     2,
-    8,
+    10,
     15,
     "Y = " + NumToString(y)
   );

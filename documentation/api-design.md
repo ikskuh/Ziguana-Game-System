@@ -78,7 +78,7 @@ Scrolls the text screen by the given number of lines.
 
 ## Graphics Mode
 
-The system also provides a bitmap mode with a resolution of 120×90 pixels and 4 bit color depth and a fixed palette.
+The system also provides a bitmap mode with a resolution of 160×120 pixels and 4 bit color depth and a fixed palette.
 
 Pixels are encoded as bytes in a string, where each byte encodes a color between 0 and 15. If the byte value is larger than 15, the pixel is considered _broken_ and will display a randomly changing color from the palette.
 
@@ -96,11 +96,11 @@ Returns the color index of a pixel at (`x`, `y`) or `void` if the pixel is broke
 
 ### `GpuGetFramebuffer(): string`
 
-Returns a string of length 10800 where each byte corresponds to a pixel on the screen. Valid pixels are encoded as values `0` … `15`, broken pixels are encoded as `255`.
+Returns a string of length 19200 where each byte corresponds to a pixel on the screen. Valid pixels are encoded as values `0` … `15`, broken pixels are encoded as `255`.
 
 ### `GpuSetFramebuffer(fb: string) void`
 
-Sets the frame buffer to the given string. Each byte is considered a pixel value. Excess bytes (more than 10800) are cut off, missing bytes (less than 10800) are filled with _broken_ pixels. Each byte may have a integer value between `0` and `15` or be a valid hexadecimal digit (`'0'`…`'9'`, `'a'`…`'f'`, `'A'`…`'F'`), all other values are considered _broken_.
+Sets the frame buffer to the given string. Each byte is considered a pixel value. Excess bytes (more than 19200) are cut off, missing bytes (less than 19200) are filled with _broken_ pixels. Each byte may have a integer value between `0` and `15` or be a valid hexadecimal digit (`'0'`…`'9'`, `'a'`…`'f'`, `'A'`…`'F'`), all other values are considered _broken_.
 
 ### `GpuBlitBuffer(x: number, y: number, width: number, data: string) void`
 
@@ -174,13 +174,17 @@ Returns a value between `-1.0` and `1.0` that reflects the horizontal position o
 
 Returns a value between `-1.0` and `1.0` that reflects the vertical position of the joystick. Negative values are upwards, positive values go downwards.
 
-### `JoyGetA(): bool`
+### `JoyGet{A,B,Go,Menu}(): bool`
 
-Returns `true` when the _A_ button is pressed.
+Returns `true` when the {_A_,_B_,_Go_,_Menu_} button is pressed.
 
-### `JoyGetB(): bool`
+### `JoyHit{A,B,Go,Menu}(): bool`
 
-Returns `true` when the _B_ button is pressed.
+Returns `true` when the {_A_,_B_,_Go_,_Menu_} button was pressed since the last call to this function.
+
+### `JoyRelease{A,B,Go,Menu}(): bool`
+
+Returns `true` when the {_A_,_B_,_Go_,_Menu_} button was released since the last call to this function.
 
 ## Audio System
 

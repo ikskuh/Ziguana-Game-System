@@ -71,14 +71,14 @@ pub fn build(b: *std.build.Builder) void {
         const build_font = b.addSystemCommand(if (is_windows_host)
             &[_][]const u8{
                 "zig-cache\\bin\\mkbitmap.exe",
-                "res/Nobbins6x6.png",
+                "res/dos_8x8_font_white.png",
                 "src/core/res/font.dat",
             }
         else
             &[_][]const u8{
                 "mono",
                 "zig-cache\\bin\\mkbitmap.exe",
-                "res/Nobbins6x6.png",
+                "res/dos_8x8_font_white.png",
                 "src/core/res/font.dat",
             });
         build_font.step.dependOn(&compile_mkbitmap.step);

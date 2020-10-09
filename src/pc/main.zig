@@ -104,6 +104,8 @@ pub fn main() !u8 {
                 .y = 0,
                 .a = false,
                 .b = false,
+                .menu = false,
+                .go = false,
             };
             if (keyboard.isPressed(.SDL_SCANCODE_LEFT))
                 joystick_state.x -= 1;
@@ -113,8 +115,10 @@ pub fn main() !u8 {
                 joystick_state.y -= 1;
             if (keyboard.isPressed(.SDL_SCANCODE_DOWN))
                 joystick_state.y += 1;
-            joystick_state.a = keyboard.isPressed(.SDL_SCANCODE_SPACE);
-            joystick_state.b = keyboard.isPressed(.SDL_SCANCODE_ESCAPE);
+            joystick_state.a = keyboard.isPressed(.SDL_SCANCODE_Y) or keyboard.isPressed(.SDL_SCANCODE_Z); // be friendly to germans as well
+            joystick_state.b = keyboard.isPressed(.SDL_SCANCODE_X);
+            joystick_state.menu = keyboard.isPressed(.SDL_SCANCODE_ESCAPE);
+            joystick_state.go = keyboard.isPressed(.SDL_SCANCODE_RETURN);
 
             game_system.setJoystick(joystick_state);
         }
