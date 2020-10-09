@@ -570,19 +570,55 @@ pub const System = struct {
                 }
 
                 self.virtual_screen.clear(Color.light_gray);
-                self.virtual_screen.drawText(0, 0, Color.white, "Chose your save game:");
+                self.virtual_screen.drawText(28, 2, Color.dark_purple, "<<SAVE GAME>>");
+                self.virtual_screen.drawText(0, 12, Color.white, "Chose your game file");
 
-                self.virtual_screen.drawText(0, 16, Color.white, "[ ] <empty>");
                 self.virtual_screen.drawText(0, 24, Color.white, "[ ] <empty>");
                 self.virtual_screen.drawText(0, 32, Color.white, "[ ] <empty>");
+                self.virtual_screen.drawText(0, 40, Color.white, "[ ] <empty>");
 
-                self.virtual_screen.drawText(8, 16 + 8 * call.selected_slot, Color.red, "X");
+                self.virtual_screen.drawText(8, 24 + 8 * call.selected_slot, Color.red, "X");
 
                 return .render;
             },
 
             .load_dialog => |call| {
-                @panic("TODO: Implement load dialog");
+                std.debug.assert(self.game != null);
+
+                if (self.joystick.menu.wasHit()) {
+                    call.data = null;
+                    return self.closeDialog(&call.dialog);
+                }
+
+                if (self.joystick.b.wasHit()) {
+                    call.data = switch (call.selected_slot) {
+                        0 => try self.allocator.dupe(u8, "1"),
+                        1 => try self.allocator.dupe(u8, "2"),
+                        2 => try self.allocator.dupe(u8, "3"),
+                        else => unreachable,
+                    };
+                    return self.closeDialog(&call.dialog);
+                }
+
+                if (self.joystick.up.wasHit() and call.selected_slot > 0) {
+                    call.selected_slot -= 1;
+                }
+
+                if (self.joystick.down.wasHit() and call.selected_slot < 2) {
+                    call.selected_slot += 1;
+                }
+
+                self.virtual_screen.clear(Color.light_gray);
+                self.virtual_screen.drawText(28, 2, Color.dark_purple, "<<LOAD GAME>>");
+                self.virtual_screen.drawText(0, 12, Color.white, "Chose your game file");
+
+                self.virtual_screen.drawText(0, 24, Color.white, "[ ] <empty>");
+                self.virtual_screen.drawText(0, 32, Color.white, "[ ] <empty>");
+                self.virtual_screen.drawText(0, 40, Color.white, "[ ] <empty>");
+
+                self.virtual_screen.drawText(8, 24 + 8 * call.selected_slot, Color.red, "X");
+
+                return .render;
             },
 
             .pause_dialog => |call| {
@@ -1120,6 +1156,7 @@ const LoadGameCall = struct {
 
     dialog: Dialog,
     data: ?[]const u8 = null,
+    selected_slot: u8 = 0,
 
     fn execute(context: lola.runtime.Context) !?lola.runtime.Value {
         const self = context.get(Self);

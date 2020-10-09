@@ -30,12 +30,20 @@ while(true)
 {
   if(JoyHitMenu())
   {
-    var success = SaveGame("This is horrible");
+    var save_game = LoadGame();
+    if(save_game != void)
+      GpuSetBorder(0xB);
+    else
+      GpuSetBorder(0x6);
+  }
+
+  if(JoyHitGo())
+  {
+    var success = SaveGame("data");
     if(success)
       GpuSetBorder(0xB);
     else
       GpuSetBorder(0x6);
-
   }
 
   x += JoyGetX();

@@ -28,7 +28,7 @@ Will load a resource located at `"data/" + path`
 
 ## Text Mode
 
-This is the default mode of the system. It displays a primitive text terminal with 20×15 characters of size and a small 6×6 pixel font.
+This is the default mode of the system. It displays a primitive text terminal with 20×15 characters of size and a small 8×8 pixel font.
 
 ### `Print(…): void`
 
