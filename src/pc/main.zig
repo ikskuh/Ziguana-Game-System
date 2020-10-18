@@ -143,11 +143,20 @@ pub fn main() !u8 {
 
 fn createROMFromDirectory(dir: std.fs.Dir) !zgs.GameROM {
     var game = zgs.GameROM{
+        .id = undefined,
         .name = undefined,
         .icon = undefined,
         .code = undefined,
         .data = undefined,
     };
+
+    game.id = blk: {
+        var file = try dir.openFile("game.id", .{});
+        defer file.close();
+
+        break :blk try file.readToEndAlloc(gpa, 128);
+    };
+    errdefer gpa.free(game.id);
 
     game.name = blk: {
         var file = try dir.openFile("game.name", .{});
@@ -245,6 +254,7 @@ fn deinitROM(rom: *zgs.GameROM) void {
         gpa.free(kv.value);
     }
     gpa.free(rom.name);
+    gpa.free(rom.id);
     rom.code.deinit();
     rom.data.deinit();
     rom.* = undefined;

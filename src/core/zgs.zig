@@ -685,6 +685,7 @@ pub const System = struct {
 };
 
 pub const GameROM = struct {
+    id: []const u8,
     name: []const u8,
     icon: [24][24]u8,
     code: lola.CompileUnit,
