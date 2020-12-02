@@ -40,7 +40,9 @@ const pkgs = struct {
     };
 };
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.build.Builder) !void {
+    try std.fs.cwd().makePath("zig-cache/bin");
+
     const pc_exe = b.addExecutable("zgs.pc", "src/pc/main.zig");
 
     pc_exe.linkLibC();
