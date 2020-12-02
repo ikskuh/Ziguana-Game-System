@@ -24,7 +24,7 @@ jobs:
 
       - uses: mstksg/get-package@v1
         with:
-          apt-get: mono-mcs mtools syslinux syslinux-common libsdl2-dev
+          apt-get: mono-mcs mtools syslinux syslinux-common libsdl2-dev libsdl2-image-dev
 
       - name: Build kernel
         run: |
