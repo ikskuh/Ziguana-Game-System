@@ -88,7 +88,7 @@ pub const TextTerminal = struct {
     const Glyph = struct {
         bits: [tile_size]u8,
 
-        inline fn get(self: @This(), x: u3, y: u3) bool {
+        fn get(self: @This(), x: u3, y: u3) callconv(.Inline) bool {
             return (self.bits[y] & (@as(u8, 1) << x)) != 0;
         }
     };
@@ -523,7 +523,7 @@ pub const System = struct {
                             break :blk .yield;
                         } else {
                             // TODO: Print stack trace here
-                            std.debug.print("failed with {}\n", .{@errorName(err)});
+                            std.debug.print("failed with {s}\n", .{@errorName(err)});
 
                             try game.vm.printStackTrace(std.io.getStdOut().writer());
                         }
